@@ -271,13 +271,21 @@ client.on('interactionCreate', async (interaction) => {
 console.log('Connecting to Discord...');
 const loginTimeout = setTimeout(() => {
   console.error('Discord login timed out after 30 seconds. Check the token and Wispbyte network/Gateway access.');
-  process.exitCode = 1;
+  process.exit(1);
 }, 30000);
 
-client.login(token)
+fetch('https://discord.com/api/v10/users/@me', {
+  headers: { Authorization: `Bot ${token}` },
+  signal: AbortSignal.timeout(10000)
+})
+  .then(async (response) => {
+    if (!response.ok) throw new Error(`Discord token rejected with HTTP ${response.status}`);
+    console.log('Discord token accepted by REST API. Connecting to Gateway...');
+    return client.login(token);
+  })
   .then(() => clearTimeout(loginTimeout))
   .catch((error) => {
     clearTimeout(loginTimeout);
-    console.error('Discord login failed:', error.message);
-    process.exitCode = 1;
+    console.error('Discord startup failed:', error.message);
+    process.exit(1);
   });
