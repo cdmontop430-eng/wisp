@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, GatewayIntentBits, MessageFlags } = require('discord.js');
 const { handleAnnouncement } = require('./commands/ann');
@@ -8,6 +9,19 @@ const music = require('./musicPlayer');
 const recorder = require('./recorder');
 const ownerAccess = require('./ownerAccess');
 const broadcast = require('./broadcast');
+
+const webServer = http.createServer((request, response) => {
+  if (request.url === '/health') {
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ status: 'ok', discord: client?.isReady?.() ? 'ready' : 'connecting' }));
+    return;
+  }
+  response.writeHead(200, { 'Content-Type': 'text/plain' });
+  response.end('D4C Discord bot is running.');
+});
+webServer.listen(Number(process.env.PORT) || 10000, '0.0.0.0', () => {
+  console.log(`Health server listening on port ${webServer.address().port}`);
+});
 
 const pidFile = path.resolve('data', 'bot.pid');
 fs.mkdirSync(path.dirname(pidFile), { recursive: true });
