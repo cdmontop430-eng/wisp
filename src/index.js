@@ -274,15 +274,7 @@ const loginTimeout = setTimeout(() => {
   process.exit(1);
 }, 30000);
 
-fetch('https://discord.com/api/v10/users/@me', {
-  headers: { Authorization: `Bot ${token}` },
-  signal: AbortSignal.timeout(10000)
-})
-  .then(async (response) => {
-    if (!response.ok) throw new Error(`Discord token rejected with HTTP ${response.status}`);
-    console.log('Discord token accepted by REST API. Connecting to Gateway...');
-    return client.login(token);
-  })
+client.login(token)
   .then(() => clearTimeout(loginTimeout))
   .catch((error) => {
     clearTimeout(loginTimeout);
