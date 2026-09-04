@@ -195,10 +195,10 @@ async function addTrack(context, url) {
   }
   queue.connection.subscribe(queue.player);
   if (!queue.playing) {
-    await playNext(message.guild.id);
+    await playNext(guild.id);
     if (!queue.playing) return `Could not play that URL. ${queue.lastError || 'Check that the YouTube video is public and playable.'}`;
   }
-  return `Queued: **${info.video_details.title}**`;
+  return `Queued: **${title}**`;
 }
 
 async function connect(message) {
