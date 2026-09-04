@@ -77,6 +77,7 @@ async function playNext(guildId) {
         track.url,
         '--no-playlist',
         '-f', 'ba/b',
+        '--extractor-args', 'youtube:player_client=ios,android',
         '--get-url',
         '--no-warnings'
       ]);
@@ -85,7 +86,7 @@ async function playNext(guildId) {
         throw new Error(`Invalid audio URL returned by yt-dlp: "${directUrl}"`);
       }
       const audioStream = await new Promise((resolve, reject) => {
-        const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+        const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1' } }, (res) => {
           if (res.statusCode >= 400) {
             reject(new Error(`HTTP ${res.statusCode} from stream URL`));
           } else {
@@ -98,10 +99,25 @@ async function playNext(guildId) {
       stream = probe.stream;
       type = probe.type;
     } catch (ytdlpError) {
-      console.log(`[music:${guildId}] yt-dlp extraction failed (${ytdlpError?.message || ytdlpError}), falling back to play.stream...`);
-      const playStream = await play.stream(track.url);
-      stream = playStream.stream;
-      type = playStream.type;
+      console.log(`[music:${guildId}] yt-dlp URL extraction failed (${ytdlpError?.message || ytdlpError}), falling back to stdout stream / play.stream...`);
+      try {
+        const ytdlpEmitter = ytdlp.exec([
+          track.url,
+          '--no-playlist',
+          '-o', '-',
+          '-f', 'ba/b',
+          '--extractor-args', 'youtube:player_client=ios,android',
+          '--no-warnings'
+        ]);
+        const probe = await demuxProbe(ytdlpEmitter.ytDlpProcess.stdout);
+        stream = probe.stream;
+        type = probe.type;
+      } catch (streamErr) {
+        console.log(`[music:${guildId}] stdout stream failed (${streamErr?.message || streamErr}), attempting play.stream...`);
+        const playStream = await play.stream(track.url);
+        stream = playStream.stream;
+        type = playStream.type;
+      }
     }
 
     const resource = createAudioResource(stream, { inputType: type, inlineVolume: true });

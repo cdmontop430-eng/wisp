@@ -94,8 +94,29 @@ const client = new Client({
   ]
 });
 
-client.once('clientReady', (readyClient) => {
+client.once('clientReady', async (readyClient) => {
   console.log(`D4C online as ${readyClient.user.tag}`);
+  try {
+    const commands = [
+      {
+        name: 'play',
+        description: 'Play any song from YouTube with live typing suggestions',
+        options: [
+          {
+            name: 'query',
+            description: 'Song title or YouTube URL',
+            type: 3, // STRING
+            required: true,
+            autocomplete: true
+          }
+        ]
+      }
+    ];
+    await readyClient.application?.commands.set(commands);
+    console.log('Slash command /play with live autocomplete registered successfully!');
+  } catch (err) {
+    console.error('Slash command registration error:', err.message);
+  }
 });
 
 client.on('shardError', (error) => console.error('Discord WebSocket shard error:', error));
@@ -306,6 +327,46 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+  // Live autocomplete for /play command as user types every letter
+  if (interaction.isAutocomplete() && interaction.commandName === 'play') {
+    const focusedValue = interaction.options.getFocused();
+    if (!focusedValue || focusedValue.trim().length === 0) {
+      await interaction.respond([]);
+      return;
+    }
+    try {
+      const results = await music.search(focusedValue);
+      const choices = (results || []).slice(0, 10).map((track) => ({
+        name: `${track.title.slice(0, 80)} (${track.duration || 'Video'})`,
+        value: track.url
+      }));
+      await interaction.respond(choices);
+    } catch {
+      await interaction.respond([]);
+    }
+    return;
+  }
+
+  // Slash command /play execution
+  if (interaction.isChatInputCommand() && interaction.commandName === 'play') {
+    if (!ownerAccess.isOwner(interaction.user.id)) {
+      await interaction.reply({ content: 'This bot is owner-only.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const query = interaction.options.getString('query');
+    await interaction.deferReply();
+    const resultMsg = await music.addTrack(interaction, query);
+    if (typeof resultMsg === 'string' && resultMsg.startsWith('Join a voice channel')) {
+      await interaction.followUp({ content: resultMsg, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await interaction.editReply({
+      embeds: [musicEmbed(interaction.guildId)],
+      components: musicControls()
+    });
+    return;
+  }
+
   if (!interaction.customId?.startsWith('d4c_')) return;
   if (!ownerAccess.isOwner(interaction.user.id)) {
     await interaction.reply({ content: 'This bot is owner-only.', flags: MessageFlags.Ephemeral });
