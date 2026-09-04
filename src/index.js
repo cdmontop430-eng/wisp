@@ -78,7 +78,7 @@ function musicEmbed(guildId) {
   return embed;
 }
 
-const token = process.env.DISCORD_TOKEN;
+const token = process.env.DISCORD_TOKEN || process.env.TOKEN || process.env.TOKEN1 || process.env.TOKENS;
 if (!token) {
   throw new Error('DISCORD_TOKEN is missing. Copy .env.example to .env and add your bot token.');
 }
