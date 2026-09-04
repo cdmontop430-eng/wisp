@@ -10,18 +10,29 @@ const isWin = process.platform === 'win32';
 const defaultYtDlpPath = process.env.YTDLP_PATH || path.resolve('tools', isWin ? 'yt-dlp.exe' : 'yt-dlp');
 let ytdlp = new YTDlpWrap(defaultYtDlpPath);
 
-// Write YOUTUBE_COOKIES env var to a temp file so yt-dlp can use it
-const cookiesPath = path.resolve('tools', 'yt-cookies.txt');
+// Cookie file paths — Render Secret File path or local project root
+const COOKIE_PATHS = [
+  path.resolve('cookies.txt'),                        // Render Secret File / local root
+  path.resolve('tools', 'yt-cookies.txt'),            // Written from env var
+];
+
 function ensureCookiesFile() {
+  // 1. Check for existing cookies.txt in known paths
+  for (const p of COOKIE_PATHS) {
+    if (fs.existsSync(p)) {
+      console.log(`[music] Using YouTube cookies from: ${p}`);
+      return p;
+    }
+  }
+  // 2. Fallback: write from YOUTUBE_COOKIES env var if set
   const raw = process.env.YOUTUBE_COOKIES;
   if (!raw) return null;
   try {
-    if (!fs.existsSync(cookiesPath) || fs.readFileSync(cookiesPath, 'utf8').trim() !== raw.trim()) {
-      fs.mkdirSync(path.dirname(cookiesPath), { recursive: true });
-      fs.writeFileSync(cookiesPath, raw.trim());
-      console.log('[music] YouTube cookies file written from YOUTUBE_COOKIES env var.');
-    }
-    return cookiesPath;
+    const dest = path.resolve('tools', 'yt-cookies.txt');
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, raw.trim());
+    console.log('[music] YouTube cookies file written from YOUTUBE_COOKIES env var.');
+    return dest;
   } catch (e) {
     console.error('[music] Failed to write cookies file:', e.message);
     return null;
