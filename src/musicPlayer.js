@@ -226,10 +226,11 @@ async function playNext(guildId) {
         }
 
         if (bestMatch) {
-          const scStream = await play.stream(bestMatch.url);
+          const scUrl = bestMatch.permalink || bestMatch.url;
+          const scStream = await play.stream(scUrl);
           stream = scStream.stream;
           type = scStream.type;
-          console.log(`[music:${guildId}] Layer 2 (SoundCloud Mirror: "${bestMatch.title || bestMatch.url}") succeeded!`);
+          console.log(`[music:${guildId}] Layer 2 (SoundCloud Mirror: "${bestMatch.name || bestMatch.title}") succeeded! URL: ${scUrl}`);
         } else {
           throw new Error(`SoundCloud search returned 0 tracks for core title "${cleaned}"`);
         }
@@ -347,10 +348,10 @@ async function addTrack(context, url) {
       const scResults = await play.search(url, { source: { soundcloud: 'tracks' }, limit: 1 });
       if (!scResults || scResults.length === 0) throw new Error('No SoundCloud results found');
       const best = scResults[0];
-      title = best.title || best.name || url;
+      title = best.name || best.title || url;
       thumbnail = best.thumbnail || null;
-      finalUrl = best.url;
-      console.log(`[music] SoundCloud search resolved "${url}" => "${title}"`);
+      finalUrl = best.permalink || best.url;  // use permalink — api.soundcloud.com URLs are not streamable
+      console.log(`[music] SoundCloud search resolved "${url}" => "${title}" at ${finalUrl}`);
     } catch (scErr) {
       return `Could not find any track matching: **${url}**. Try a YouTube URL or a more specific search term.`;
     }
@@ -467,9 +468,9 @@ async function search(query) {
     const scResults = await play.search(query, { limit: 10, source: { soundcloud: 'tracks' } });
     if (scResults && scResults.length > 0) {
       return scResults.map((result) => ({
-        title: result.title || result.name || 'Audio Track',
-        url: result.url,
-        duration: result.durationRaw || 'Track'
+        title: result.name || result.title || 'Audio Track',
+        url: result.permalink || result.url,  // permalink is the proper soundcloud.com URL
+        duration: result.durationInSec ? `${Math.floor(result.durationInSec / 60)}:${String(result.durationInSec % 60).padStart(2, '0')}` : 'Track'
       }));
     }
   } catch (err) {
