@@ -57,6 +57,7 @@ async function runE2ETests() {
   console.log('✔ Test 4 Passed!');
 
   console.log('=== ALL END-TO-END TESTS PASSED SUCCESSFULLY! ===');
+  process.exit(0);
 }
 
 runE2ETests().catch((error) => {

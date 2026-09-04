@@ -3,7 +3,7 @@ require('dotenv').config();
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, GatewayIntentBits, MessageFlags } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, GatewayIntentBits, MessageFlags, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
 const { handleAnnouncement } = require('./commands/ann');
 const music = require('./musicPlayer');
 const recorder = require('./recorder');
@@ -166,23 +166,72 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
-    if (commandName === '!play') {
-      if (!content) return message.reply('Usage: `!play <YouTube URL>`');
-      await music.addTrack(message, content);
-      await message.reply({ embeds: [musicEmbed(message.guild.id)], components: musicControls() });
+    if (['!play', '!search'].includes(commandName)) {
+      if (!content) {
+        const guideEmbed = new EmbedBuilder()
+          .setColor(0xe11d48)
+          .setTitle('🎵 D4C Interactive Music Search & Player')
+          .setDescription('Type `!play <song name>` or `!play <YouTube URL>` to play music!\n\n**Examples:**\n• `!play master vaathi coming`\n• `!play https://www.youtube.com/watch?v=7SJ0G_NeDuE`\n\nWhen you search by song name, a dropdown selection menu will appear so you can pick your exact track!');
+        await message.reply({ embeds: [guideEmbed] });
+        return;
+      }
+
+      const isUrl = /^https?:\/\//i.test(content.trim());
+      if (isUrl) {
+        const resultMsg = await music.addTrack(message, content.trim());
+        if (typeof resultMsg === 'string' && resultMsg.startsWith('Join a voice channel')) {
+          await message.reply(resultMsg);
+          return;
+        }
+        await message.reply({ embeds: [musicEmbed(message.guild.id)], components: musicControls() });
+        return;
+      }
+
+      const searchStatusMsg = await message.reply(`🔍 Searching YouTube for: **${content}**...`);
+      let results = [];
+      try {
+        results = await music.search(content);
+      } catch (searchError) {
+        console.error(`[search] YouTube search error: ${searchError.message}`);
+      }
+
+      if (!results || results.length === 0) {
+        await searchStatusMsg.edit(`❌ No songs found on YouTube for: "${content}". Please try another search term or paste a direct YouTube URL.`);
+        return;
+      }
+
+      const topResults = results.slice(0, 5);
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('d4c_select_song')
+        .setPlaceholder('🎵 Select a song from search results...')
+        .addOptions(
+          topResults.map((track, idx) =>
+            new StringSelectMenuOptionBuilder()
+              .setLabel(`${idx + 1}. ${track.title.slice(0, 95)}`)
+              .setDescription(track.duration ? `Duration: ${track.duration}` : 'YouTube Video')
+              .setValue(track.url)
+          )
+        );
+
+      const menuRow = new ActionRowBuilder().addComponents(selectMenu);
+      const searchEmbed = new EmbedBuilder()
+        .setColor(0x3b82f6)
+        .setTitle(`🔍 YouTube Search Results for: "${content}"`)
+        .setDescription(
+          topResults.map((r, i) => `**${i + 1}.** [${r.title}](${r.url}) (${r.duration || 'Video'})`).join('\n') +
+          '\n\n👇 **Select your song from the dropdown menu below to play:**'
+        );
+
+      await searchStatusMsg.edit({
+        content: null,
+        embeds: [searchEmbed],
+        components: [menuRow]
+      });
       return;
     }
 
     if (['!music', '!panel', '!player'].includes(commandName)) {
       await message.reply({ embeds: [musicEmbed(message.guild.id)], components: musicControls() });
-      return;
-    }
-
-    if (commandName === '!search') {
-      if (!content) return message.reply('Usage: `!search <song name>`');
-      const results = await music.search(content);
-      const output = results.map((result, index) => `**${index + 1}.** [${result.title}](${result.url}) | ${result.duration}`).join('\n');
-      await message.reply(output || 'No songs found.');
       return;
     }
 
@@ -248,7 +297,7 @@ client.on('messageCreate', async (message) => {
     }
 
     if (commandName === '!help') {
-      await message.reply({ embeds: [new EmbedBuilder().setColor(0xe11d48).setTitle('D4C command center').setDescription('`!music` opens the live player panel.\n\nOwner: `!addowner <ID>` | `!removeowner <ID>` | `!owners` | `!sendall <message>`\n\nVoice: `!join` / `!connect` | `!leave` / `!disconnect`\n\nMusic: `!ann <content>` | `!play <URL>` | `!search <song>` | `!queue` | `!now` | `!pause` | `!resume` | `!skip` | `!stop` | `!loop on/off` | `!volume 0-200` | `!record` | `!stoprecord` | `!247`')], components: musicControls() });
+      await message.reply({ embeds: [new EmbedBuilder().setColor(0xe11d48).setTitle('D4C command center').setDescription('`!music` opens the live player panel.\n\nOwner: `!addowner <ID>` | `!removeowner <ID>` | `!owners` | `!sendall <message>`\n\nVoice: `!join` / `!connect` | `!leave` / `!disconnect`\n\nMusic: `!ann <content>` | `!play <song/URL>` | `!search <song>` | `!queue` | `!now` | `!pause` | `!resume` | `!skip` | `!stop` | `!loop on/off` | `!volume 0-200` | `!record` | `!stoprecord` | `!247`')], components: musicControls() });
     }
   } catch (error) {
     console.error(`[${commandName}] ${error.message}`);
@@ -257,22 +306,41 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isButton() || !interaction.customId.startsWith('d4c_')) return;
+  if (!interaction.customId?.startsWith('d4c_')) return;
   if (!ownerAccess.isOwner(interaction.user.id)) {
     await interaction.reply({ content: 'This bot is owner-only.', flags: MessageFlags.Ephemeral });
     return;
   }
-  const actions = {
-    d4c_pause: () => music.pause(interaction.guildId),
-    d4c_resume: () => music.resume(interaction.guildId),
-    d4c_skip: () => music.skip(interaction.guildId),
-    d4c_stop: () => music.stop(interaction.guildId),
-    d4c_loop: () => music.setLoop(interaction.guildId, !(music.status(interaction.guildId)?.loop ?? false)),
-    d4c_queue: () => true
-  };
-  if (!actions[interaction.customId]) return;
-  actions[interaction.customId]();
-  await interaction.update({ embeds: [musicEmbed(interaction.guildId)], components: musicControls() });
+
+  if (interaction.isStringSelectMenu() && interaction.customId === 'd4c_select_song') {
+    const selectedUrl = interaction.values[0];
+    await interaction.deferUpdate();
+    const resultMsg = await music.addTrack(interaction, selectedUrl);
+    if (typeof resultMsg === 'string' && resultMsg.startsWith('Join a voice channel')) {
+      await interaction.followUp({ content: resultMsg, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await interaction.editReply({
+      content: null,
+      embeds: [musicEmbed(interaction.guildId)],
+      components: musicControls()
+    });
+    return;
+  }
+
+  if (interaction.isButton()) {
+    const actions = {
+      d4c_pause: () => music.pause(interaction.guildId),
+      d4c_resume: () => music.resume(interaction.guildId),
+      d4c_skip: () => music.skip(interaction.guildId),
+      d4c_stop: () => music.stop(interaction.guildId),
+      d4c_loop: () => music.setLoop(interaction.guildId, !(music.status(interaction.guildId)?.loop ?? false)),
+      d4c_queue: () => true
+    };
+    if (!actions[interaction.customId]) return;
+    actions[interaction.customId]();
+    await interaction.update({ embeds: [musicEmbed(interaction.guildId)], components: musicControls() });
+  }
 });
 
 console.log('Connecting to Discord...');

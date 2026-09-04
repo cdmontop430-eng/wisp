@@ -109,7 +109,7 @@ async function playNext(guildId) {
     queue.player.play(resource);
     queue.playing = true;
   } catch (error) {
-    const errorMsg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error)) || 'Unknown audio extraction error';
+    const errorMsg = error?.message || (typeof error === 'string' ? error : (error?.statusMessage || String(error))) || 'Unknown audio extraction error';
     console.error(`[music:${guildId}] unable to play ${track.url}:`, errorMsg);
     queue.lastError = errorMsg;
     queue.current = null;
@@ -124,8 +124,10 @@ function onTrackEnd(guildId) {
   queue.current = null;
 }
 
-async function addTrack(message, url) {
-  const voiceChannel = message.member?.voice.channel;
+async function addTrack(context, url) {
+  const member = context.member;
+  const guild = context.guild;
+  const voiceChannel = member?.voice?.channel;
   if (!voiceChannel) return 'Join a voice channel first.';
 
   const cleanUrl = normalizeYouTubeUrl(url);
@@ -156,7 +158,7 @@ async function addTrack(message, url) {
     }
   }
 
-  const queue = getQueue(message.guild.id);
+  const queue = getQueue(guild.id);
   queue.tracks.push({
     title,
     url: cleanUrl,
@@ -170,13 +172,13 @@ async function addTrack(message, url) {
     selfMute: false
   });
   queue.connection.on('stateChange', (oldState, newState) => {
-    console.log(`[voice:${message.guild.id}] ${oldState.status} -> ${newState.status}`);
+    console.log(`[voice:${guild.id}] ${oldState.status} -> ${newState.status}`);
   });
   queue.connection.on('debug', (debugMessage) => {
-    console.log(`[voice:${message.guild.id}] ${debugMessage}`);
+    console.log(`[voice:${guild.id}] ${debugMessage}`);
   });
   queue.connection.on('error', (error) => {
-    if (error.code !== 'ABORT_ERR') console.error(`[voice:${message.guild.id}] connection error: ${error.message}`);
+    if (error.code !== 'ABORT_ERR') console.error(`[voice:${guild.id}] connection error: ${error.message}`);
   });
   try {
     await entersState(queue.connection, VoiceConnectionStatus.Ready, 30_000);
