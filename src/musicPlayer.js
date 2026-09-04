@@ -64,7 +64,7 @@ function normalizeYouTubeUrl(input) {
   try {
     parsed = new URL(input);
   } catch {
-    throw new Error('Please provide a valid YouTube URL.');
+    return null;
   }
 
   const hostname = parsed.hostname.replace('www.', '');
@@ -73,7 +73,7 @@ function normalizeYouTubeUrl(input) {
   if (hostname === 'youtube.com' && parsed.pathname.startsWith('/shorts/')) videoId = parsed.pathname.split('/')[2];
   if (hostname === 'youtube.com' && parsed.pathname.startsWith('/embed/')) videoId = parsed.pathname.split('/')[2];
   if (!['youtube.com', 'youtu.be'].includes(hostname) || !/^[\w-]{11}$/.test(videoId || '')) {
-    throw new Error('Please provide a valid YouTube video URL.');
+    return null;
   }
   return `https://www.youtube.com/watch?v=${videoId}`;
 }
@@ -156,6 +156,7 @@ function cleanSongTitle(title) {
   clean = clean.replace(/\[.*?\]|\(.*?\)/g, '');
   clean = clean.replace(/official music video|official video|lyric video|official audio|music video|video|hd|4k|audio/gi, '');
   clean = clean.replace(/[^\w\s-]/gi, ' ');
+  clean = clean.replace(/^[-\s]+/, '');
   clean = clean.replace(/\s+/g, ' ').trim();
   return clean || 'music';
 }
@@ -307,38 +308,58 @@ async function addTrack(context, url) {
   const voiceChannel = member?.voice?.channel;
   if (!voiceChannel) return 'Join a voice channel first.';
 
+  await initPlayDl();
   const cleanUrl = normalizeYouTubeUrl(url);
-  let title = 'YouTube Track';
+  let title = url;
   let thumbnail = null;
+  let finalUrl = cleanUrl;
 
-  try {
-    const info = await play.video_info(cleanUrl);
-    title = info.video_details?.title || title;
-    thumbnail = info.video_details?.thumbnails?.[0]?.url || thumbnail;
-  } catch (err) {
-    console.log(`[music] play.video_info failed (${err.message}), using YouTube oEmbed fallback...`);
+  if (cleanUrl) {
+    // It's a valid YouTube URL — fetch title via play-dl or oEmbed
+    title = 'YouTube Track';
     try {
-      const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(cleanUrl)}&format=json`;
-      const oembedData = await new Promise((resolve, reject) => {
-        https.get(oembedUrl, (res) => {
-          let data = '';
-          res.on('data', (chunk) => { data += chunk; });
-          res.on('end', () => {
-            try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
-          });
-        }).on('error', reject);
-      });
-      title = oembedData.title || title;
-      thumbnail = oembedData.thumbnail_url || thumbnail;
-    } catch (oembedErr) {
-      console.error('[music] oEmbed fallback failed:', oembedErr.message);
+      const info = await play.video_info(cleanUrl);
+      title = info.video_details?.title || title;
+      thumbnail = info.video_details?.thumbnails?.[0]?.url || thumbnail;
+    } catch (err) {
+      console.log(`[music] play.video_info failed (${err.message}), using YouTube oEmbed fallback...`);
+      try {
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(cleanUrl)}&format=json`;
+        const oembedData = await new Promise((resolve, reject) => {
+          https.get(oembedUrl, (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => {
+              try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+            });
+          }).on('error', reject);
+        });
+        title = oembedData.title || title;
+        thumbnail = oembedData.thumbnail_url || thumbnail;
+      } catch (oembedErr) {
+        console.error('[music] oEmbed fallback failed:', oembedErr.message);
+      }
+    }
+  } else {
+    // It's a search query — find on SoundCloud directly
+    console.log(`[music] Input is a search query: "${url}". Searching SoundCloud...`);
+    try {
+      const scResults = await play.search(url, { source: { soundcloud: 'tracks' }, limit: 1 });
+      if (!scResults || scResults.length === 0) throw new Error('No SoundCloud results found');
+      const best = scResults[0];
+      title = best.title || best.name || url;
+      thumbnail = best.thumbnail || null;
+      finalUrl = best.url;
+      console.log(`[music] SoundCloud search resolved "${url}" => "${title}"`);
+    } catch (scErr) {
+      return `Could not find any track matching: **${url}**. Try a YouTube URL or a more specific search term.`;
     }
   }
 
   const queue = getQueue(guild.id);
   queue.tracks.push({
     title,
-    url: cleanUrl,
+    url: finalUrl,
     thumbnail
   });
   queue.connection ??= joinVoiceChannel({

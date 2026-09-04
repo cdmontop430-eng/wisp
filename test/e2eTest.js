@@ -29,7 +29,8 @@ async function runE2ETests() {
     assert.equal(normalized, 'https://www.youtube.com/watch?v=7SJ0G_NeDuE');
   }
 
-  assert.throws(() => music.normalizeYouTubeUrl('invalid-link'), /Please provide a valid YouTube URL/);
+  assert.equal(music.normalizeYouTubeUrl('invalid-link'), null, 'Non-URL input should return null (treated as search query)');
+  assert.equal(music.normalizeYouTubeUrl('https://example.com/watch?v=abc'), null, 'Non-YouTube URL should return null');
   console.log('✔ Test 2 Passed!');
 
   // Test 3: Owner Access Control
