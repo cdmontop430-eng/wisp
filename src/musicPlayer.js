@@ -92,6 +92,46 @@ function getQueue(guildId) {
   return queues.get(guildId);
 }
 
+async function getPipedAudioStream(videoId) {
+  const apis = [
+    `https://pipedapi.kavin.rocks/streams/${videoId}`,
+    `https://api.piped.video/streams/${videoId}`,
+    `https://pipedapi.tokhmi.xyz/streams/${videoId}`
+  ];
+
+  for (const apiUrl of apis) {
+    try {
+      const data = await new Promise((resolve, reject) => {
+        https.get(apiUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+          let body = '';
+          res.on('data', chunk => { body += chunk; });
+          res.on('end', () => {
+            try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
+          });
+        }).on('error', reject);
+      });
+
+      const audioStreams = data?.audioStreams || [];
+      if (audioStreams.length > 0) {
+        const bestStream = audioStreams.find(s => s.mimeType?.includes('opus')) || audioStreams[0];
+        if (bestStream?.url) {
+          const resStream = await new Promise((resolve, reject) => {
+            https.get(bestStream.url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+              if (res.statusCode < 400) resolve(res);
+              else reject(new Error(`HTTP ${res.statusCode}`));
+            }).on('error', reject);
+          });
+          const probe = await demuxProbe(resStream);
+          return { stream: probe.stream, type: probe.type };
+        }
+      }
+    } catch (err) {
+      console.log(`[music] Piped API ${apiUrl} failed: ${err.message}`);
+    }
+  }
+  throw new Error('All Piped API audio stream mirrors failed');
+}
+
 async function playNext(guildId) {
   const queue = queues.get(guildId);
   if (!queue) return;
@@ -106,51 +146,77 @@ async function playNext(guildId) {
   try {
     await ensureYtDlp();
     let stream, type;
+
+    // Layer 1: yt-dlp direct URL extraction with TV/MWEB clients
     try {
       const output = await ytdlp.execPromise([
         track.url,
         '--no-playlist',
         '-f', 'ba/b',
-        '--extractor-args', 'youtube:player_client=ios,android',
+        '--extractor-args', 'youtube:player_client=tv_embedded,mweb',
         '--get-url',
         '--no-warnings'
       ]);
       const directUrl = (output || '').trim().split(/\s+/)[0];
-      if (!directUrl || !directUrl.startsWith('http')) {
-        throw new Error(`Invalid audio URL returned by yt-dlp: "${directUrl}"`);
-      }
+      if (!directUrl || !directUrl.startsWith('http')) throw new Error(`Invalid URL: "${directUrl}"`);
       const audioStream = await new Promise((resolve, reject) => {
-        const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1' } }, (res) => {
-          if (res.statusCode >= 400) {
-            reject(new Error(`HTTP ${res.statusCode} from stream URL`));
-          } else {
-            resolve(res);
-          }
+        const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+          if (res.statusCode >= 400) reject(new Error(`HTTP ${res.statusCode}`));
+          else resolve(res);
         });
         request.on('error', reject);
       });
       const probe = await demuxProbe(audioStream);
       stream = probe.stream;
       type = probe.type;
-    } catch (ytdlpError) {
-      console.log(`[music:${guildId}] yt-dlp URL extraction failed (${ytdlpError?.message || ytdlpError}), falling back to stdout stream / play.stream...`);
+    } catch (layer1Err) {
+      console.log(`[music:${guildId}] Layer 1 (yt-dlp tv_embedded) failed (${layer1Err.message}), trying Layer 2 (ios/android)...`);
+
+      // Layer 2: yt-dlp direct URL extraction with iOS/Android clients
       try {
-        const ytdlpEmitter = ytdlp.exec([
+        const output = await ytdlp.execPromise([
           track.url,
           '--no-playlist',
-          '-o', '-',
           '-f', 'ba/b',
           '--extractor-args', 'youtube:player_client=ios,android',
+          '--get-url',
           '--no-warnings'
         ]);
-        const probe = await demuxProbe(ytdlpEmitter.ytDlpProcess.stdout);
+        const directUrl = (output || '').trim().split(/\s+/)[0];
+        if (!directUrl || !directUrl.startsWith('http')) throw new Error(`Invalid URL: "${directUrl}"`);
+        const audioStream = await new Promise((resolve, reject) => {
+          const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+            if (res.statusCode >= 400) reject(new Error(`HTTP ${res.statusCode}`));
+            else resolve(res);
+          });
+          request.on('error', reject);
+        });
+        const probe = await demuxProbe(audioStream);
         stream = probe.stream;
         type = probe.type;
-      } catch (streamErr) {
-        console.log(`[music:${guildId}] stdout stream failed (${streamErr?.message || streamErr}), attempting play.stream...`);
-        const playStream = await play.stream(track.url);
-        stream = playStream.stream;
-        type = playStream.type;
+      } catch (layer2Err) {
+        console.log(`[music:${guildId}] Layer 2 (yt-dlp ios/android) failed (${layer2Err.message}), trying Layer 3 (Piped API)...`);
+
+        // Layer 3: Piped / Invidious API stream proxy (Bypasses YouTube datacenter IP blocks completely)
+        const videoIdMatch = track.url.match(/(?:v=|\/shorts\/|\/embed\/|youtu\.be\/)([\w-]{11})/);
+        const videoId = videoIdMatch ? videoIdMatch[1] : null;
+
+        if (videoId) {
+          try {
+            const pipedData = await getPipedAudioStream(videoId);
+            stream = pipedData.stream;
+            type = pipedData.type;
+          } catch (layer3Err) {
+            console.log(`[music:${guildId}] Layer 3 (Piped API) failed (${layer3Err.message}), trying Layer 4 (play-dl)...`);
+            const playStream = await play.stream(track.url);
+            stream = playStream.stream;
+            type = playStream.type;
+          }
+        } else {
+          const playStream = await play.stream(track.url);
+          stream = playStream.stream;
+          type = playStream.type;
+        }
       }
     }
 
