@@ -67,14 +67,21 @@ function normalizeYouTubeUrl(input) {
     return null;
   }
 
-  const hostname = parsed.hostname.replace('www.', '');
+  const hostname = parsed.hostname.replace('www.', '').replace('m.', '');
+  if (!['youtube.com', 'youtu.be', 'music.youtube.com'].includes(hostname) &&
+      !hostname.endsWith('youtube.com') && hostname !== 'youtu.be') return null;
+
   let videoId = parsed.searchParams.get('v');
-  if (hostname === 'youtu.be') videoId = parsed.pathname.slice(1).split('/')[0];
-  if (hostname === 'youtube.com' && parsed.pathname.startsWith('/shorts/')) videoId = parsed.pathname.split('/')[2];
-  if (hostname === 'youtube.com' && parsed.pathname.startsWith('/embed/')) videoId = parsed.pathname.split('/')[2];
-  if (!['youtube.com', 'youtu.be'].includes(hostname) || !/^[\w-]{11}$/.test(videoId || '')) {
-    return null;
+  if (hostname === 'youtu.be') videoId = parsed.pathname.slice(1).split(/[?&/]/)[0];
+  if (parsed.pathname.startsWith('/shorts/')) videoId = parsed.pathname.split('/')[2]?.split('?')[0];
+  if (parsed.pathname.startsWith('/embed/')) videoId = parsed.pathname.split('/')[2]?.split('?')[0];
+
+  // Accept IDs 10-13 chars and trim to 11 (handles accidental extra chars from copy-paste)
+  if (videoId && /^[\w-]{10,13}$/.test(videoId)) {
+    videoId = videoId.slice(0, 11);
   }
+
+  if (!videoId || !/^[\w-]{11}$/.test(videoId)) return null;
   return `https://www.youtube.com/watch?v=${videoId}`;
 }
 
@@ -189,9 +196,10 @@ async function playNext(guildId) {
           track.url,
           '--no-playlist',
           '-f', 'ba/b',
-          '--extractor-args', 'youtube:player_client=ios,android',
+          '--extractor-args', 'youtube:player_client=tv_embedded,android_music',
           '--get-url',
-          '--no-warnings'
+          '--no-warnings',
+          '--socket-timeout', '15',
         ]);
         const directUrl = (output || '').trim().split(/\s+/)[0];
         if (!directUrl || !directUrl.startsWith('http')) throw new Error(`Invalid URL: "${directUrl}"`);
@@ -205,7 +213,7 @@ async function playNext(guildId) {
         const probe = await demuxProbe(audioStream);
         stream = probe.stream;
         type = probe.type;
-        console.log(`[music:${guildId}] Layer 1 (yt-dlp ios/android direct extraction) succeeded!`);
+        console.log(`[music:${guildId}] Layer 1 (yt-dlp tv_embedded/android_music) succeeded!`);
       }
     } catch (layer1Err) {
       console.log(`[music:${guildId}] Layer 1 failed (${layer1Err.message}), trying Layer 2 (SoundCloud Mirror with cleaned title)...`);
@@ -341,8 +349,25 @@ async function addTrack(context, url) {
         console.error('[music] oEmbed fallback failed:', oembedErr.message);
       }
     }
+  } else if (url.startsWith('https://soundcloud.com/') || url.startsWith('http://soundcloud.com/')) {
+    // It's a direct SoundCloud permalink URL (e.g. selected from autocomplete)
+    console.log(`[music] Direct SoundCloud URL detected: ${url}`);
+    finalUrl = url;
+    try {
+      const scInfo = await play.soundcloud(url);
+      title = scInfo.name || scInfo.title || url;
+      thumbnail = scInfo.thumbnail || null;
+      console.log(`[music] SoundCloud track info resolved: "${title}"`);
+    } catch (infoErr) {
+      console.log(`[music] SoundCloud info fetch warning: ${infoErr.message} — using URL as title`);
+      title = url.split('/').pop().replace(/-/g, ' ');
+    }
+  } else if (/youtube\.com|youtu\.be/i.test(url)) {
+    // Looks like a YouTube URL but couldn't be parsed — give a clear error rather than searching
+    console.log(`[music] Unparseable YouTube URL: ${url}`);
+    return `❌ Could not parse that YouTube URL. Please double-check it and try again.`;
   } else {
-    // It's a search query — find on SoundCloud directly
+    // It's a plain text search query — find best match on SoundCloud
     console.log(`[music] Input is a search query: "${url}". Searching SoundCloud...`);
     try {
       const scResults = await play.search(url, { source: { soundcloud: 'tracks' }, limit: 1 });
