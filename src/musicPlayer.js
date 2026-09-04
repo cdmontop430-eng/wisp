@@ -52,19 +52,31 @@ async function playNext(guildId) {
   const track = queue.tracks.shift();
   queue.current = track;
   try {
-    const directUrl = (await ytdlp.execPromise([
-      track.url,
-      '--no-playlist',
-      '--format', 'bestaudio/best',
-      '--get-url',
-      '--quiet',
-      '--no-warnings'
-    ])).trim().split(/\s+/)[0];
-    const audioStream = await new Promise((resolve, reject) => {
-      const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, resolve);
-      request.on('error', reject);
-    });
-    const { stream, type } = await demuxProbe(audioStream);
+    let stream, type;
+    try {
+      const directUrl = (await ytdlp.execPromise([
+        track.url,
+        '--no-playlist',
+        '--format', 'bestaudio/best',
+        '--extractor-args', 'youtube:player_client=ios,web',
+        '--get-url',
+        '--quiet',
+        '--no-warnings'
+      ])).trim().split(/\s+/)[0];
+      const audioStream = await new Promise((resolve, reject) => {
+        const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, resolve);
+        request.on('error', reject);
+      });
+      const probe = await demuxProbe(audioStream);
+      stream = probe.stream;
+      type = probe.type;
+    } catch (ytdlpError) {
+      console.log(`[music:${guildId}] yt-dlp extraction failed, falling back to play.stream: ${ytdlpError.message}`);
+      const playStream = await play.stream(track.url);
+      stream = playStream.stream;
+      type = playStream.type;
+    }
+
     const resource = createAudioResource(stream, { inputType: type, inlineVolume: true });
     resource.volume.setVolume(queue.volume);
     queue.player.play(resource);
@@ -89,12 +101,38 @@ async function addTrack(message, url) {
   if (!voiceChannel) return 'Join a voice channel first.';
 
   const cleanUrl = normalizeYouTubeUrl(url);
-  const info = await play.video_info(cleanUrl);
+  let title = 'YouTube Track';
+  let thumbnail = null;
+
+  try {
+    const info = await play.video_info(cleanUrl);
+    title = info.video_details?.title || title;
+    thumbnail = info.video_details?.thumbnails?.[0]?.url || thumbnail;
+  } catch (err) {
+    console.log(`[music] play.video_info failed (${err.message}), using YouTube oEmbed fallback...`);
+    try {
+      const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(cleanUrl)}&format=json`;
+      const oembedData = await new Promise((resolve, reject) => {
+        https.get(oembedUrl, (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+          });
+        }).on('error', reject);
+      });
+      title = oembedData.title || title;
+      thumbnail = oembedData.thumbnail_url || thumbnail;
+    } catch (oembedErr) {
+      console.error('[music] oEmbed fallback failed:', oembedErr.message);
+    }
+  }
+
   const queue = getQueue(message.guild.id);
   queue.tracks.push({
-    title: info.video_details.title,
+    title,
     url: cleanUrl,
-    thumbnail: info.video_details.thumbnails?.[0]?.url
+    thumbnail
   });
   queue.connection ??= joinVoiceChannel({
     channelId: voiceChannel.id,
