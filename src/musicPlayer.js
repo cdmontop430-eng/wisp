@@ -10,17 +10,51 @@ const isWin = process.platform === 'win32';
 const defaultYtDlpPath = process.env.YTDLP_PATH || path.resolve('tools', isWin ? 'yt-dlp.exe' : 'yt-dlp');
 let ytdlp = new YTDlpWrap(defaultYtDlpPath);
 
+function downloadFile(url, destPath) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return downloadFile(res.headers.location, destPath).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) {
+        return reject(new Error(`Failed to download file from ${url}: HTTP ${res.statusCode}`));
+      }
+      const fileStream = fs.createWriteStream(destPath);
+      res.pipe(fileStream);
+      fileStream.on('finish', () => {
+        fileStream.close(resolve);
+      });
+      fileStream.on('error', (err) => {
+        fs.unlink(destPath, () => reject(err));
+      });
+    }).on('error', reject);
+  });
+}
+
 async function ensureYtDlp() {
-  if (process.env.YTDLP_PATH && fs.existsSync(process.env.YTDLP_PATH)) return;
+  if (process.env.YTDLP_PATH && fs.existsSync(process.env.YTDLP_PATH)) {
+    ytdlp.setBinaryPath(process.env.YTDLP_PATH);
+    return;
+  }
   if (!fs.existsSync(defaultYtDlpPath)) {
     console.log(`[music] Downloading yt-dlp binary for ${process.platform} to ${defaultYtDlpPath}...`);
     fs.mkdirSync(path.dirname(defaultYtDlpPath), { recursive: true });
-    const platformName = isWin ? 'win32' : (process.platform === 'darwin' ? 'mac' : 'linux');
-    await YTDlpWrap.downloadFromGithub(defaultYtDlpPath, undefined, platformName);
-    if (!isWin) {
-      fs.chmodSync(defaultYtDlpPath, 0o755);
+    const binaryUrl = isWin
+      ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+      : (process.platform === 'darwin'
+        ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos'
+        : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp');
+
+    try {
+      await downloadFile(binaryUrl, defaultYtDlpPath);
+      if (!isWin) fs.chmodSync(defaultYtDlpPath, 0o755);
+      console.log(`[music] yt-dlp binary downloaded successfully via direct CDN.`);
+    } catch (dlErr) {
+      console.error(`[music] Direct binary download failed (${dlErr.message}), attempting YTDlpWrap fallback...`);
+      const platformName = isWin ? 'win32' : (process.platform === 'darwin' ? 'mac' : 'linux');
+      await YTDlpWrap.downloadFromGithub(defaultYtDlpPath, undefined, platformName);
+      if (!isWin) fs.chmodSync(defaultYtDlpPath, 0o755);
     }
-    console.log(`[music] yt-dlp binary downloaded successfully.`);
   }
   ytdlp.setBinaryPath(defaultYtDlpPath);
 }
