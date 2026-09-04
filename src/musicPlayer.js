@@ -10,6 +10,24 @@ const isWin = process.platform === 'win32';
 const defaultYtDlpPath = process.env.YTDLP_PATH || path.resolve('tools', isWin ? 'yt-dlp.exe' : 'yt-dlp');
 let ytdlp = new YTDlpWrap(defaultYtDlpPath);
 
+// Write YOUTUBE_COOKIES env var to a temp file so yt-dlp can use it
+const cookiesPath = path.resolve('tools', 'yt-cookies.txt');
+function ensureCookiesFile() {
+  const raw = process.env.YOUTUBE_COOKIES;
+  if (!raw) return null;
+  try {
+    if (!fs.existsSync(cookiesPath) || fs.readFileSync(cookiesPath, 'utf8').trim() !== raw.trim()) {
+      fs.mkdirSync(path.dirname(cookiesPath), { recursive: true });
+      fs.writeFileSync(cookiesPath, raw.trim());
+      console.log('[music] YouTube cookies file written from YOUTUBE_COOKIES env var.');
+    }
+    return cookiesPath;
+  } catch (e) {
+    console.error('[music] Failed to write cookies file:', e.message);
+    return null;
+  }
+}
+
 function downloadFile(url, destPath) {
   return new Promise((resolve, reject) => {
     https.get(url, (res) => {
@@ -192,15 +210,23 @@ async function playNext(guildId) {
         console.log(`[music:${guildId}] Layer 1 (Direct SoundCloud Stream) succeeded!`);
       } else {
         await ensureYtDlp();
-        const output = await ytdlp.execPromise([
+        const cookiePath = ensureCookiesFile();
+        // Build yt-dlp args — use cookies if available (bypasses bot detection 100%)
+        const ytArgs = [
           track.url,
           '--no-playlist',
           '-f', 'ba/b',
-          '--extractor-args', 'youtube:player_client=tv_embedded,android_music',
           '--get-url',
           '--no-warnings',
           '--socket-timeout', '15',
-        ]);
+        ];
+        if (cookiePath) {
+          ytArgs.push('--cookies', cookiePath);
+          console.log(`[music:${guildId}] Using YouTube cookies for extraction.`);
+        } else {
+          ytArgs.push('--extractor-args', 'youtube:player_client=tv_embedded,android_music');
+        }
+        const output = await ytdlp.execPromise(ytArgs);
         const directUrl = (output || '').trim().split(/\s+/)[0];
         if (!directUrl || !directUrl.startsWith('http')) throw new Error(`Invalid URL: "${directUrl}"`);
         const audioStream = await new Promise((resolve, reject) => {
@@ -213,7 +239,7 @@ async function playNext(guildId) {
         const probe = await demuxProbe(audioStream);
         stream = probe.stream;
         type = probe.type;
-        console.log(`[music:${guildId}] Layer 1 (yt-dlp tv_embedded/android_music) succeeded!`);
+        console.log(`[music:${guildId}] Layer 1 (yt-dlp ${cookiePath ? 'with cookies' : 'tv_embedded/android_music'}) succeeded!`);
       }
     } catch (layer1Err) {
       console.log(`[music:${guildId}] Layer 1 failed (${layer1Err.message}), trying Layer 2 (SoundCloud Mirror with cleaned title)...`);
