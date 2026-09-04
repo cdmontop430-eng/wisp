@@ -2,10 +2,27 @@ const { AudioPlayerStatus, NoSubscriberBehavior, VoiceConnectionStatus, createAu
 const play = require('play-dl');
 const path = require('node:path');
 const https = require('node:https');
+const fs = require('node:fs');
 const YTDlpWrap = require('yt-dlp-wrap').default;
 
 const queues = new Map();
-const ytdlp = new YTDlpWrap(process.env.YTDLP_PATH || path.resolve('tools', 'yt-dlp.exe'));
+const isWin = process.platform === 'win32';
+const defaultYtDlpPath = process.env.YTDLP_PATH || path.resolve('tools', isWin ? 'yt-dlp.exe' : 'yt-dlp');
+let ytdlp = new YTDlpWrap(defaultYtDlpPath);
+
+async function ensureYtDlp() {
+  if (process.env.YTDLP_PATH && fs.existsSync(process.env.YTDLP_PATH)) return;
+  if (!fs.existsSync(defaultYtDlpPath)) {
+    console.log(`[music] Downloading yt-dlp binary for ${process.platform} to ${defaultYtDlpPath}...`);
+    fs.mkdirSync(path.dirname(defaultYtDlpPath), { recursive: true });
+    const platformName = isWin ? 'win32' : (process.platform === 'darwin' ? 'mac' : 'linux');
+    await YTDlpWrap.downloadFromGithub(defaultYtDlpPath, undefined, platformName);
+    if (!isWin) {
+      fs.chmodSync(defaultYtDlpPath, 0o755);
+    }
+    console.log(`[music] yt-dlp binary downloaded successfully.`);
+  }
+}
 
 function normalizeYouTubeUrl(input) {
   let parsed;
@@ -52,6 +69,7 @@ async function playNext(guildId) {
   const track = queue.tracks.shift();
   queue.current = track;
   try {
+    await ensureYtDlp();
     let stream, type;
     try {
       const directUrl = (await ytdlp.execPromise([
