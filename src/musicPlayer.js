@@ -92,17 +92,34 @@ function getQueue(guildId) {
   return queues.get(guildId);
 }
 
+let isPlayDlInitialized = false;
+async function initPlayDl() {
+  if (isPlayDlInitialized) return;
+  try {
+    const scClientId = await play.getFreeClientID();
+    if (scClientId) {
+      await play.setToken({ soundcloud: { client_id: scClientId } });
+      console.log('[music] play-dl SoundCloud client_id initialized successfully.');
+    }
+  } catch (err) {
+    console.log(`[music] play-dl SoundCloud client_id init warning: ${err.message}`);
+  }
+  isPlayDlInitialized = true;
+}
+
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
 async function getPipedAudioStream(videoId) {
   const apis = [
+    `https://pipedapi.tokhmi.xyz/streams/${videoId}`,
     `https://pipedapi.kavin.rocks/streams/${videoId}`,
-    `https://api.piped.video/streams/${videoId}`,
-    `https://pipedapi.tokhmi.xyz/streams/${videoId}`
+    `https://api.piped.video/streams/${videoId}`
   ];
 
   for (const apiUrl of apis) {
     try {
       const data = await new Promise((resolve, reject) => {
-        https.get(apiUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+        https.get(apiUrl, { agent: httpsAgent, headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
           let body = '';
           res.on('data', chunk => { body += chunk; });
           res.on('end', () => {
@@ -116,7 +133,7 @@ async function getPipedAudioStream(videoId) {
         const bestStream = audioStreams.find(s => s.mimeType?.includes('opus')) || audioStreams[0];
         if (bestStream?.url) {
           const resStream = await new Promise((resolve, reject) => {
-            https.get(bestStream.url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+            https.get(bestStream.url, { agent: httpsAgent, headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
               if (res.statusCode < 400) resolve(res);
               else reject(new Error(`HTTP ${res.statusCode}`));
             }).on('error', reject);
@@ -144,6 +161,7 @@ async function playNext(guildId) {
   const track = queue.tracks.shift();
   queue.current = track;
   try {
+    await initPlayDl();
     await ensureYtDlp();
     let stream, type;
 
