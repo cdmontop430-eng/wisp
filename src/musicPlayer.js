@@ -172,36 +172,43 @@ async function playNext(guildId) {
   queue.current = track;
   try {
     await initPlayDl();
-    await ensureYtDlp();
     let stream, type;
 
-    // Layer 1: yt-dlp direct URL extraction with android_creator,web_creator clients
+    // Layer 1: Direct YouTube extraction via yt-dlp with ios,android signature (exact track URL)
     try {
-      const output = await ytdlp.execPromise([
-        track.url,
-        '--no-playlist',
-        '-f', 'ba/b',
-        '--extractor-args', 'youtube:player_client=android_creator,web_creator',
-        '--get-url',
-        '--no-warnings'
-      ]);
-      const directUrl = (output || '').trim().split(/\s+/)[0];
-      if (!directUrl || !directUrl.startsWith('http')) throw new Error(`Invalid URL: "${directUrl}"`);
-      const audioStream = await new Promise((resolve, reject) => {
-        const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
-          if (res.statusCode >= 400) reject(new Error(`HTTP ${res.statusCode}`));
-          else resolve(res);
+      if (track.url.includes('soundcloud.com')) {
+        const scStream = await play.stream(track.url);
+        stream = scStream.stream;
+        type = scStream.type;
+        console.log(`[music:${guildId}] Layer 1 (Direct SoundCloud Stream) succeeded!`);
+      } else {
+        await ensureYtDlp();
+        const output = await ytdlp.execPromise([
+          track.url,
+          '--no-playlist',
+          '-f', 'ba/b',
+          '--extractor-args', 'youtube:player_client=ios,android',
+          '--get-url',
+          '--no-warnings'
+        ]);
+        const directUrl = (output || '').trim().split(/\s+/)[0];
+        if (!directUrl || !directUrl.startsWith('http')) throw new Error(`Invalid URL: "${directUrl}"`);
+        const audioStream = await new Promise((resolve, reject) => {
+          const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+            if (res.statusCode >= 400) reject(new Error(`HTTP ${res.statusCode}`));
+            else resolve(res);
+          });
+          request.on('error', reject);
         });
-        request.on('error', reject);
-      });
-      const probe = await demuxProbe(audioStream);
-      stream = probe.stream;
-      type = probe.type;
-      console.log(`[music:${guildId}] Layer 1 (android_creator) succeeded!`);
+        const probe = await demuxProbe(audioStream);
+        stream = probe.stream;
+        type = probe.type;
+        console.log(`[music:${guildId}] Layer 1 (yt-dlp ios/android direct extraction) succeeded!`);
+      }
     } catch (layer1Err) {
-      console.log(`[music:${guildId}] Layer 1 failed (${layer1Err.message}), trying Layer 2 (SoundCloud Mirror)...`);
+      console.log(`[music:${guildId}] Layer 1 failed (${layer1Err.message}), trying Layer 2 (SoundCloud Mirror with cleaned title)...`);
 
-      // Layer 2: SoundCloud Mirror Engine (Bypasses YouTube IP bans 100% with crystal-clear audio)
+      // Layer 2: SoundCloud Mirror Engine with cleaned title
       try {
         const rawTitle = track.title && track.title !== 'YouTube Track' ? track.title : 'music';
         const cleaned = cleanSongTitle(rawTitle);
@@ -210,11 +217,11 @@ async function playNext(guildId) {
 
         let scResults = await play.search(cleaned, { source: { soundcloud: 'tracks' }, limit: 1 });
         if (!scResults || scResults.length === 0) {
-          console.log(`[music:${guildId}] SoundCloud query "${cleaned}" returned 0 tracks, trying simpler query "${simple}"...`);
+          console.log(`[music:${guildId}] SoundCloud query "${cleaned}" returned 0 tracks, trying "${simple}"...`);
           scResults = await play.search(simple, { source: { soundcloud: 'tracks' }, limit: 1 });
         }
         if (!scResults || scResults.length === 0) {
-          console.log(`[music:${guildId}] SoundCloud query "${simple}" returned 0 tracks, trying single word query "${fallbackWord}"...`);
+          console.log(`[music:${guildId}] SoundCloud query "${simple}" returned 0 tracks, trying "${fallbackWord}"...`);
           scResults = await play.search(fallbackWord, { source: { soundcloud: 'tracks' }, limit: 1 });
         }
 
@@ -227,7 +234,7 @@ async function playNext(guildId) {
           throw new Error('SoundCloud search returned 0 tracks across all query variations');
         }
       } catch (layer2Err) {
-        console.log(`[music:${guildId}] Layer 2 (SoundCloud) failed (${layer2Err.message}), trying Layer 3 (Piped API)...`);
+        console.log(`[music:${guildId}] Layer 2 (SoundCloud Mirror) failed (${layer2Err.message}), trying Layer 3 (Piped API)...`);
 
         // Layer 3: Piped API proxy
         const videoIdMatch = track.url.match(/(?:v=|\/shorts\/|\/embed\/|youtu\.be\/)([\w-]{11})/);
@@ -266,10 +273,32 @@ async function playNext(guildId) {
   }
 }
 
-function onTrackEnd(guildId) {
+async function onTrackEnd(guildId) {
   const queue = queues.get(guildId);
   if (!queue || !queue.current) return;
-  if (queue.loop) queue.tracks.unshift(queue.current);
+
+  if (queue.loop) {
+    queue.tracks.unshift(queue.current);
+  } else if (queue.autoplay !== false && queue.tracks.length === 0) {
+    const lastTitle = cleanSongTitle(queue.current.title);
+    console.log(`[music:${guildId}] Autoplay active! Searching related tracks for "${lastTitle}"...`);
+    try {
+      await initPlayDl();
+      const related = await play.search(lastTitle, { limit: 3, source: { soundcloud: 'tracks' } });
+      if (related && related.length > 1) {
+        const nextTrack = related[1] || related[0];
+        queue.tracks.push({
+          title: nextTrack.title || nextTrack.name || 'Related Song',
+          url: nextTrack.url,
+          thumbnail: nextTrack.thumbnail || null
+        });
+        console.log(`[music:${guildId}] Autoplay queued next song: "${nextTrack.title || nextTrack.name}"`);
+      }
+    } catch (err) {
+      console.log(`[music:${guildId}] Autoplay warning: ${err.message}`);
+    }
+  }
+
   queue.current = null;
 }
 
@@ -413,8 +442,27 @@ function status(guildId) {
 }
 
 async function search(query) {
-  const results = await play.search(query, { limit: 5, source: { youtube: 'video' } });
-  return results.map((result) => ({ title: result.title, url: result.url, duration: result.durationRaw }));
+  try {
+    await initPlayDl();
+    const scResults = await play.search(query, { limit: 10, source: { soundcloud: 'tracks' } });
+    if (scResults && scResults.length > 0) {
+      return scResults.map((result) => ({
+        title: result.title || result.name || 'Audio Track',
+        url: result.url,
+        duration: result.durationRaw || 'Track'
+      }));
+    }
+  } catch (err) {
+    console.log(`[search] SoundCloud search warning: ${err.message}`);
+  }
+
+  try {
+    const ytResults = await play.search(query, { limit: 10, source: { youtube: 'video' } });
+    return ytResults.map((result) => ({ title: result.title, url: result.url, duration: result.durationRaw }));
+  } catch (err) {
+    console.error(`[search] YouTube search error: ${err.message}`);
+    return [];
+  }
 }
 
 function stop(guildId) {
