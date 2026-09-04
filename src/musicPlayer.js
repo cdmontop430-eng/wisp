@@ -22,6 +22,7 @@ async function ensureYtDlp() {
     }
     console.log(`[music] yt-dlp binary downloaded successfully.`);
   }
+  ytdlp.setBinaryPath(defaultYtDlpPath);
 }
 
 function normalizeYouTubeUrl(input) {
@@ -72,24 +73,32 @@ async function playNext(guildId) {
     await ensureYtDlp();
     let stream, type;
     try {
-      const directUrl = (await ytdlp.execPromise([
+      const output = await ytdlp.execPromise([
         track.url,
         '--no-playlist',
-        '--format', 'bestaudio/best',
-        '--extractor-args', 'youtube:player_client=ios,web',
+        '-f', 'ba/b',
         '--get-url',
-        '--quiet',
         '--no-warnings'
-      ])).trim().split(/\s+/)[0];
+      ]);
+      const directUrl = (output || '').trim().split(/\s+/)[0];
+      if (!directUrl || !directUrl.startsWith('http')) {
+        throw new Error(`Invalid audio URL returned by yt-dlp: "${directUrl}"`);
+      }
       const audioStream = await new Promise((resolve, reject) => {
-        const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, resolve);
+        const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+          if (res.statusCode >= 400) {
+            reject(new Error(`HTTP ${res.statusCode} from stream URL`));
+          } else {
+            resolve(res);
+          }
+        });
         request.on('error', reject);
       });
       const probe = await demuxProbe(audioStream);
       stream = probe.stream;
       type = probe.type;
     } catch (ytdlpError) {
-      console.log(`[music:${guildId}] yt-dlp extraction failed, falling back to play.stream: ${ytdlpError.message}`);
+      console.log(`[music:${guildId}] yt-dlp extraction failed (${ytdlpError?.message || ytdlpError}), falling back to play.stream...`);
       const playStream = await play.stream(track.url);
       stream = playStream.stream;
       type = playStream.type;
@@ -100,8 +109,9 @@ async function playNext(guildId) {
     queue.player.play(resource);
     queue.playing = true;
   } catch (error) {
-    console.error(`[music:${guildId}] unable to play ${track.url}:`, error.message);
-    queue.lastError = error.message;
+    const errorMsg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error)) || 'Unknown audio extraction error';
+    console.error(`[music:${guildId}] unable to play ${track.url}:`, errorMsg);
+    queue.lastError = errorMsg;
     queue.current = null;
     await playNext(guildId);
   }
