@@ -78,10 +78,12 @@ function musicEmbed(guildId) {
   return embed;
 }
 
-const token = process.env.DISCORD_TOKEN || process.env.TOKEN || process.env.TOKEN1 || process.env.TOKENS;
-if (!token) {
+const rawToken = process.env.DISCORD_TOKEN || process.env.TOKEN || process.env.TOKEN1 || process.env.TOKENS;
+if (!rawToken) {
   throw new Error('DISCORD_TOKEN is missing. Copy .env.example to .env and add your bot token.');
 }
+const token = rawToken.trim().replace(/^["']|["']$/g, '');
+console.log(`Token loaded (length: ${token.length}, prefix: ${token.substring(0, 12)}...)`);
 
 const client = new Client({
   intents: [
@@ -96,6 +98,12 @@ client.once('clientReady', (readyClient) => {
   console.log(`D4C online as ${readyClient.user.tag}`);
 });
 
+client.on('shardError', (error) => console.error('Discord WebSocket shard error:', error));
+client.on('debug', (info) => {
+  if (info.includes('Connect') || info.includes('Heartbeat') || info.includes('40') || info.includes('token') || info.includes('WS')) {
+    console.log('[Discord Debug]', info);
+  }
+});
 client.on('error', (error) => console.error('Discord client error:', error));
 process.on('unhandledRejection', (error) => console.error('Unhandled promise rejection:', error));
 
