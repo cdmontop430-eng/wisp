@@ -149,6 +149,16 @@ async function getPipedAudioStream(videoId) {
   throw new Error('All Piped API audio stream mirrors failed');
 }
 
+function cleanSongTitle(title) {
+  if (!title) return 'music';
+  return title
+    .replace(/\[.*?\]|\(.*?\)/g, '')
+    .replace(/official music video|official video|lyric video|official audio|music video|video|hd|4k|audio/gi, '')
+    .replace(/[^\w\s-]/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function playNext(guildId) {
   const queue = queues.get(guildId);
   if (!queue) return;
@@ -193,15 +203,28 @@ async function playNext(guildId) {
 
       // Layer 2: SoundCloud Mirror Engine (Bypasses YouTube IP bans 100% with crystal-clear audio)
       try {
-        const searchTitle = track.title && track.title !== 'YouTube Track' ? track.title : 'music';
-        const scResults = await play.search(searchTitle, { source: { soundcloud: 'tracks' }, limit: 1 });
+        const rawTitle = track.title && track.title !== 'YouTube Track' ? track.title : 'music';
+        const cleaned = cleanSongTitle(rawTitle);
+        const simple = cleaned.split('-')[0].trim();
+        const fallbackWord = simple.split(' ')[0] || 'music';
+
+        let scResults = await play.search(cleaned, { source: { soundcloud: 'tracks' }, limit: 1 });
+        if (!scResults || scResults.length === 0) {
+          console.log(`[music:${guildId}] SoundCloud query "${cleaned}" returned 0 tracks, trying simpler query "${simple}"...`);
+          scResults = await play.search(simple, { source: { soundcloud: 'tracks' }, limit: 1 });
+        }
+        if (!scResults || scResults.length === 0) {
+          console.log(`[music:${guildId}] SoundCloud query "${simple}" returned 0 tracks, trying single word query "${fallbackWord}"...`);
+          scResults = await play.search(fallbackWord, { source: { soundcloud: 'tracks' }, limit: 1 });
+        }
+
         if (scResults && scResults.length > 0) {
           const scStream = await play.stream(scResults[0].url);
           stream = scStream.stream;
           type = scStream.type;
-          console.log(`[music:${guildId}] Layer 2 (SoundCloud Mirror: "${scResults[0].title}") succeeded!`);
+          console.log(`[music:${guildId}] Layer 2 (SoundCloud Mirror: "${scResults[0].title || scResults[0].url}") succeeded!`);
         } else {
-          throw new Error('SoundCloud search returned 0 tracks');
+          throw new Error('SoundCloud search returned 0 tracks across all query variations');
         }
       } catch (layer2Err) {
         console.log(`[music:${guildId}] Layer 2 (SoundCloud) failed (${layer2Err.message}), trying Layer 3 (Piped API)...`);
