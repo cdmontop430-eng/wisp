@@ -60,6 +60,63 @@ function downloadFile(url, destPath) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Cobalt API — free YouTube proxy that returns direct audio URLs.
+// Works reliably from datacenter IPs (Render/Railway) where YouTube blocks
+// yt-dlp. Tries multiple community instances for redundancy.
+// ---------------------------------------------------------------------------
+const COBALT_INSTANCES = [
+  'https://api.cobalt.tools/api/json',
+  'https://cobalt-api.kwiatekmiki.com/api/json',
+  'https://cobalt-backend.canine.tools/api/json',
+];
+
+async function getStreamViaCobalt(trackUrl) {
+  for (const endpoint of COBALT_INSTANCES) {
+    try {
+      const body = JSON.stringify({
+        url: trackUrl,
+        videoQuality: 'audio',
+        audioFormat: 'mp3',
+      });
+      const data = await new Promise((resolve, reject) => {
+        const req = https.request(endpoint, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+            'User-Agent': 'Mozilla/5.0',
+          },
+          timeout: 20000,
+        }, (res) => {
+          let raw = '';
+          res.on('data', (chunk) => { raw += chunk; });
+          res.on('end', () => {
+            try { resolve(JSON.parse(raw)); } catch (e) { reject(new Error('Invalid JSON from Cobalt')); }
+          });
+        });
+        req.on('timeout', () => { req.destroy(new Error('Cobalt timeout')); });
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+      });
+      if (data.status === 'success' && data.url) {
+        console.log(`[music] Cobalt (${endpoint}) returned direct audio URL.`);
+        return data.url;
+      }
+      if (data.status === 'tunnel' && data.url) {
+        console.log(`[music] Cobalt (${endpoint}) returned tunnel URL.`);
+        return data.url;
+      }
+      console.log(`[music] Cobalt (${endpoint}) no URL: ${data.text || data.error || 'unknown'}`);
+    } catch (err) {
+      console.log(`[music] Cobalt (${endpoint}) failed: ${err.message}`);
+    }
+  }
+  return null;
+}
+
 async function ensureYtDlp() {
   if (process.env.YTDLP_PATH && fs.existsSync(process.env.YTDLP_PATH)) {
     ytdlp.setBinaryPath(process.env.YTDLP_PATH);
@@ -223,49 +280,63 @@ async function playNext(guildId) {
         await ensureYtDlp();
         const cookiePath = ensureCookiesFile();
 
-        // YouTube player clients, most-likely-to-bypass-bot-detection first.
-        // android_vr is currently the most reliable on datacenter IPs.
-        const PLAYER_CLIENTS = [
-          'android_vr',
-          'tv',
-          'ios',
-          'web_embedded',
-          'android_music',
-          'tv_embedded',
-          'web_safari',
-          'mweb',
-        ];
-
         let directUrl = null;
-        let lastClientError = null;
 
-        for (const client of PLAYER_CLIENTS) {
-          const ytArgs = [
-            track.url,
-            '--no-playlist',
-            '-f', 'ba/b',
-            '--get-url',
-            '--no-warnings',
-            '--socket-timeout', '15',
-            '--extractor-args', `youtube:player_client=${client}`,
-          ];
-          if (cookiePath) ytArgs.push('--cookies', cookiePath);
-          try {
-            const output = await ytdlp.execPromise(ytArgs);
-            const url = (output || '').trim().split(/\s+/)[0];
-            if (url && url.startsWith('http')) {
-              directUrl = url;
-              console.log(`[music:${guildId}] yt-dlp succeeded with player_client=${client}${cookiePath ? ' (+cookies)' : ''}`);
-              break;
-            }
-            lastClientError = new Error(`Empty output for ${client}`);
-          } catch (clientErr) {
-            lastClientError = clientErr;
-            console.log(`[music:${guildId}] player_client=${client} failed: ${clientErr.message.split('\n')[0]}`);
+        // ---- Attempt A: Cobalt API (fast, works on datacenter IPs) ----
+        try {
+          const cobaltUrl = await getStreamViaCobalt(track.url);
+          if (cobaltUrl) {
+            directUrl = cobaltUrl;
+            console.log(`[music:${guildId}] Layer 1 (Cobalt API) succeeded!`);
           }
+        } catch (cobaltErr) {
+          console.log(`[music:${guildId}] Cobalt failed: ${cobaltErr.message}`);
         }
 
-        if (!directUrl) throw lastClientError || new Error('All YouTube player clients failed');
+        // ---- Attempt B: yt-dlp multi-player-client chain ----
+        if (!directUrl) {
+          // YouTube player clients, most-likely-to-bypass-bot-detection first.
+          const PLAYER_CLIENTS = [
+            'android_vr',
+            'tv',
+            'ios',
+            'web_embedded',
+            'android_music',
+            'tv_embedded',
+            'web_safari',
+            'mweb',
+          ];
+
+          let lastClientError = null;
+
+          for (const client of PLAYER_CLIENTS) {
+            const ytArgs = [
+              track.url,
+              '--no-playlist',
+              '-f', 'ba/b',
+              '--get-url',
+              '--no-warnings',
+              '--socket-timeout', '15',
+              '--extractor-args', `youtube:player_client=${client}`,
+            ];
+            if (cookiePath) ytArgs.push('--cookies', cookiePath);
+            try {
+              const output = await ytdlp.execPromise(ytArgs);
+              const url = (output || '').trim().split(/\s+/)[0];
+              if (url && url.startsWith('http')) {
+                directUrl = url;
+                console.log(`[music:${guildId}] yt-dlp succeeded with player_client=${client}${cookiePath ? ' (+cookies)' : ''}`);
+                break;
+              }
+              lastClientError = new Error(`Empty output for ${client}`);
+            } catch (clientErr) {
+              lastClientError = clientErr;
+              console.log(`[music:${guildId}] player_client=${client} failed: ${clientErr.message.split('\n')[0]}`);
+            }
+          }
+
+          if (!directUrl) throw lastClientError || new Error('All YouTube player clients + Cobalt failed');
+        }
 
         const audioStream = await new Promise((resolve, reject) => {
           const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
@@ -277,35 +348,48 @@ async function playNext(guildId) {
         const probe = await demuxProbe(audioStream);
         stream = probe.stream;
         type = probe.type;
-        console.log(`[music:${guildId}] Layer 1 (yt-dlp multi-client) succeeded!`);
+        console.log(`[music:${guildId}] Layer 1 (Cobalt/yt-dlp) succeeded!`);
       }
     } catch (layer1Err) {
       console.log(`[music:${guildId}] Layer 1 failed (${layer1Err.message}), trying Layer 2 (SoundCloud Mirror with cleaned title)...`);
 
-      // Layer 2: SoundCloud Mirror Engine with cleaned title
+      // Layer 2: SoundCloud Mirror Engine with cleaned title — try each result until one streams
       try {
         const rawTitle = track.title && track.title !== 'YouTube Track' ? track.title : 'music';
         const cleaned = cleanSongTitle(rawTitle);
         console.log(`[music:${guildId}] Searching SoundCloud mirror for core title: "${cleaned}" (raw: "${rawTitle}")`);
 
         let scResults = await play.search(cleaned, { source: { soundcloud: 'tracks' }, limit: 5 });
-        
-        let bestMatch = scResults?.[0];
+
+        // Sort: keyword match first, then the rest
         if (scResults && scResults.length > 0) {
           const firstWord = cleaned.split(' ')[0].toLowerCase();
-          const keywordMatch = scResults.find(r => (r.title || r.name || '').toLowerCase().includes(firstWord));
-          if (keywordMatch) bestMatch = keywordMatch;
+          scResults.sort((a, b) => {
+            const aHit = (a.title || a.name || '').toLowerCase().includes(firstWord) ? 0 : 1;
+            const bHit = (b.title || b.name || '').toLowerCase().includes(firstWord) ? 0 : 1;
+            return aHit - bHit;
+          });
         }
 
-        if (bestMatch) {
-          const scUrl = bestMatch.permalink || bestMatch.url;
-          const scStream = await play.stream(scUrl);
-          stream = scStream.stream;
-          type = scStream.type;
-          console.log(`[music:${guildId}] Layer 2 (SoundCloud Mirror: "${bestMatch.name || bestMatch.title}") succeeded! URL: ${scUrl}`);
-        } else {
-          throw new Error(`SoundCloud search returned 0 tracks for core title "${cleaned}"`);
+        let played = false;
+        if (scResults && scResults.length > 0) {
+          for (const result of scResults) {
+            const scUrl = result.permalink || result.url;
+            if (!scUrl) continue;
+            try {
+              const scStream = await play.stream(scUrl);
+              stream = scStream.stream;
+              type = scStream.type;
+              console.log(`[music:${guildId}] Layer 2 (SoundCloud Mirror: "${result.name || result.title}") succeeded! URL: ${scUrl}`);
+              played = true;
+              break;
+            } catch (err) {
+              console.log(`[music:${guildId}] SoundCloud candidate failed (${err.message}), trying next...`);
+            }
+          }
         }
+
+        if (!played) throw new Error(`No streamable SoundCloud mirror for "${cleaned}"`);
       } catch (layer2Err) {
         console.log(`[music:${guildId}] Layer 2 (SoundCloud Mirror) failed (${layer2Err.message}), trying Layer 3 (Piped API)...`);
 
