@@ -33,6 +33,65 @@ const previewFields = document.getElementById('preview-fields');
 const previewImageWrapper = document.getElementById('preview-image-wrapper');
 const previewImage = document.getElementById('preview-image');
 
+// ----- Template definitions -----
+const templates = {
+  announcement: {
+    title: '📢 Announcement',
+    description: 'Important news for all members!',
+    sections: [
+      { heading: '📋 Details', lines: ['What is being announced', 'Why it matters', 'Who is affected'] },
+      { heading: '⏰ Timeline', lines: ['When this takes effect', 'Duration (if applicable)'] },
+      { heading: '❓ Questions?', lines: ['Reach out to staff', 'Check #faq for details'] }
+    ]
+  },
+  event: {
+    title: '🎉 Upcoming Event',
+    description: 'Join us for an exciting event!',
+    sections: [
+      { heading: '📅 Event Details', lines: ['Event name and type', 'Date and time (with timezone)', 'Location / Voice channel'] },
+      { heading: '🎮 Activities', lines: ['What we will do', 'Special guests or hosts', 'Prizes or rewards'] },
+      { heading: '✅ How to Join', lines: ['React below to get notified', 'Be online 10 minutes early', 'Have fun!'] }
+    ]
+  },
+  giveaway: {
+    title: '🎁 Giveaway!',
+    description: 'Win amazing prizes by entering below!',
+    sections: [
+      { heading: '🏆 Prize', lines: ['What you can win', 'Value of the prize', 'Number of winners'] },
+      { heading: '📝 How to Enter', lines: ['React with 🎉 to this message', 'Be a member of the server', 'No requirements!'] },
+      { heading: '📋 Rules', lines: ['Must be in server to claim', 'Winner announced in 7 days', 'No alt accounts allowed'] }
+    ]
+  },
+  welcome: {
+    title: '👋 Welcome to the Server!',
+    description: 'We are glad to have you here!',
+    sections: [
+      { heading: '📜 Server Info', lines: ['Server name and purpose', 'Member count', 'Founded date'] },
+      { heading: '📏 Rules', lines: ['Be respectful to everyone', 'No spam or self-promote', 'Follow Discord ToS'] },
+      { heading: '🎭 Get Roles', lines: ['Visit #roles channel', 'Pick your interests', 'Get pinged for events'] }
+    ]
+  },
+  changelog: {
+    title: '📝 Changelog',
+    description: 'What is new in this update!',
+    sections: [
+      { heading: '✨ New Features', lines: ['Feature 1 description', 'Feature 2 description', 'Feature 3 description'] },
+      { heading: '🔧 Improvements', lines: ['Improvement 1', 'Improvement 2'] },
+      { heading: '🐛 Bug Fixes', lines: ['Fixed issue 1', 'Fixed issue 2', 'Fixed issue 3'] }
+    ]
+  },
+  rules: {
+    title: '📜 Server Rules',
+    description: 'Please follow these rules at all times!',
+    sections: [
+      { heading: '1️⃣ Be Respectful', lines: ['No harassment or hate speech', 'Treat others how you want to be treated', 'Respect different opinions'] },
+      { heading: '2️⃣ No Spam', lines: ['No excessive messages', 'No unwanted DMs to members', 'Self-promo only in designated channels'] },
+      { heading: '3️⃣ Content Guidelines', lines: ['No NSFW content', 'Keep conversations in correct channels', 'No piracy or illegal content'] },
+      { heading: '⚠️ Punishments', lines: ['1st offense: Warning', '2nd offense: Mute (1 hour)', '3rd offense: Ban'] }
+    ]
+  }
+};
+
 // ----- Toast helper -----
 function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
@@ -72,8 +131,8 @@ loginBtn.addEventListener('click', () => {
   loginError.textContent = '';
   loginOverlay.classList.add('hidden');
   appEl.classList.remove('hidden');
-  addSection();
-  updatePreview();
+  loadTemplate('announcement');
+  document.querySelector('[data-template="announcement"]').classList.add('active');
 });
 
 loginKeyInput.addEventListener('keydown', (e) => {
@@ -86,6 +145,51 @@ logoutBtn.addEventListener('click', () => {
   loginOverlay.classList.remove('hidden');
   loginKeyInput.value = '';
 });
+
+// ----- Template selector -----
+document.querySelectorAll('.template-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const templateName = btn.dataset.template;
+    loadTemplate(templateName);
+    // Highlight active template
+    document.querySelectorAll('.template-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+/**
+ * Load a template into the builder.
+ * Clears existing sections and populates with the template's structure.
+ */
+function loadTemplate(templateName) {
+  const template = templates[templateName];
+  if (!template) return;
+
+  // Set title and description
+  embedTitleInput.value = template.title;
+  embedDescriptionInput.value = template.description;
+
+  // Clear existing sections
+  sectionsContainer.innerHTML = '';
+  sectionCounter = 0;
+
+  // Add template sections
+  template.sections.forEach((sectionData) => {
+    addSection();
+    const lastSection = sectionsContainer.lastElementChild;
+    lastSection.querySelector('.section-heading').value = sectionData.heading;
+    const linesContainer = lastSection.querySelector('.section-lines');
+    linesContainer.innerHTML = '';
+    sectionData.lines.forEach((lineText) => {
+      addLine(lastSection);
+      const lastLine = linesContainer.lastElementChild;
+      lastLine.querySelector('.line-input').value = lineText;
+    });
+  });
+
+  updatePreview();
+  showToast(`Loaded "${templateName}" template`, 'info');
+}
 
 // ----- Channel validation -----
 validateChannelBtn.addEventListener('click', async () => {

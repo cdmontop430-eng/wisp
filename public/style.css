@@ -320,3 +320,46 @@ textarea { resize: vertical; min-height: 60px; }
 /* ================= Rows ================= */
 .row { display: flex; gap: 0.5rem; }
 .row input { flex: 1; }
+
+/* ================= Templates ================= */
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.template-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.75rem 0.5rem;
+  background: var(--bg-input);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: var(--text-normal);
+  font-family: inherit;
+}
+
+.template-btn:hover {
+  border-color: var(--brand);
+  background: rgba(88, 101, 242, 0.1);
+  transform: translateY(-2px);
+}
+
+.template-btn.active {
+  border-color: var(--brand);
+  background: rgba(88, 101, 242, 0.2);
+  box-shadow: 0 0 12px rgba(88, 101, 242, 0.3);
+}
+
+.template-icon {
+  font-size: 1.5rem;
+}
+
+.template-name {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
