@@ -212,7 +212,7 @@ async function playNext(guildId) {
     await initPlayDl();
     let stream, type;
 
-    // Layer 1: Direct YouTube extraction via yt-dlp
+    // Layer 1: Direct YouTube extraction via yt-dlp — try multiple player clients
     try {
       if (track.url.includes('soundcloud.com')) {
         const scStream = await play.stream(track.url);
@@ -222,24 +222,51 @@ async function playNext(guildId) {
       } else {
         await ensureYtDlp();
         const cookiePath = ensureCookiesFile();
-        // Build yt-dlp args — combine cookies + extractor args for best results
-        const ytArgs = [
-          track.url,
-          '--no-playlist',
-          '-f', 'ba/b',
-          '--get-url',
-          '--no-warnings',
-          '--socket-timeout', '15',
+
+        // YouTube player clients, most-likely-to-bypass-bot-detection first.
+        // android_vr is currently the most reliable on datacenter IPs.
+        const PLAYER_CLIENTS = [
+          'android_vr',
+          'tv',
+          'ios',
+          'web_embedded',
+          'android_music',
+          'tv_embedded',
+          'web_safari',
+          'mweb',
         ];
-        // Always use extractor args (helps bypass bot detection on hosting services)
-        ytArgs.push('--extractor-args', 'youtube:player_client=tv_embedded,android_music,web_safari');
-        if (cookiePath) {
-          ytArgs.push('--cookies', cookiePath);
-          console.log(`[music:${guildId}] Using YouTube cookies + extractor args for extraction.`);
+
+        let directUrl = null;
+        let lastClientError = null;
+
+        for (const client of PLAYER_CLIENTS) {
+          const ytArgs = [
+            track.url,
+            '--no-playlist',
+            '-f', 'ba/b',
+            '--get-url',
+            '--no-warnings',
+            '--socket-timeout', '15',
+            '--extractor-args', `youtube:player_client=${client}`,
+          ];
+          if (cookiePath) ytArgs.push('--cookies', cookiePath);
+          try {
+            const output = await ytdlp.execPromise(ytArgs);
+            const url = (output || '').trim().split(/\s+/)[0];
+            if (url && url.startsWith('http')) {
+              directUrl = url;
+              console.log(`[music:${guildId}] yt-dlp succeeded with player_client=${client}${cookiePath ? ' (+cookies)' : ''}`);
+              break;
+            }
+            lastClientError = new Error(`Empty output for ${client}`);
+          } catch (clientErr) {
+            lastClientError = clientErr;
+            console.log(`[music:${guildId}] player_client=${client} failed: ${clientErr.message.split('\n')[0]}`);
+          }
         }
-        const output = await ytdlp.execPromise(ytArgs);
-        const directUrl = (output || '').trim().split(/\s+/)[0];
-        if (!directUrl || !directUrl.startsWith('http')) throw new Error(`Invalid URL: "${directUrl}"`);
+
+        if (!directUrl) throw lastClientError || new Error('All YouTube player clients failed');
+
         const audioStream = await new Promise((resolve, reject) => {
           const request = https.get(directUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
             if (res.statusCode >= 400) reject(new Error(`HTTP ${res.statusCode}`));
@@ -250,7 +277,7 @@ async function playNext(guildId) {
         const probe = await demuxProbe(audioStream);
         stream = probe.stream;
         type = probe.type;
-        console.log(`[music:${guildId}] Layer 1 (yt-dlp ${cookiePath ? 'with cookies + ' : ''}extractor args) succeeded!`);
+        console.log(`[music:${guildId}] Layer 1 (yt-dlp multi-client) succeeded!`);
       }
     } catch (layer1Err) {
       console.log(`[music:${guildId}] Layer 1 failed (${layer1Err.message}), trying Layer 2 (SoundCloud Mirror with cleaned title)...`);
