@@ -20,6 +20,7 @@ const ticketSystem = require('./ticketSystem');
 const moderation = require('./moderation');
 const customCommands = require('./customCommands');
 const audioEffects = require('./audioEffects');
+const verification = require('./verification');
 const { success, error, info, warning } = require('./embedHelper');
 
 const pidFile = path.resolve('data', 'bot.pid');
@@ -193,6 +194,39 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
+    // ========================================================================
+    // VERIFICATION SYSTEM — verify channel + human-check gate
+    // ========================================================================
+    if (commandName === '!setverify') {
+      const channelId = args[0]?.replace(/[<#>]/g, '');
+      const channel = channelId && message.guild.channels.cache.get(channelId);
+      if (!channel) {
+        await message.reply('Usage: `!setverify <#verify-channel>` — the only channel unverified users can see.');
+        return;
+      }
+      verification.setVerifyChannel(message.guild.id, channel.id);
+      await message.reply(`✅ Verification channel set to <#${channel.id}>. Post the panel there with \`!verify-panel\`.`);
+      return;
+    }
+
+    if (commandName === '!verifyrole') {
+      const roleId = args[0]?.replace(/[<@&>]/g, '');
+      const role = roleId && message.guild.roles.cache.get(roleId);
+      if (!role) {
+        await message.reply('Usage: `!verifyrole <@role>` — the role given after passing verification. Lock all channels to this role!');
+        return;
+      }
+      verification.setVerifiedRole(message.guild.id, role.id);
+      await message.reply(`✅ Verified users will receive the **${role.name}** role. Now post the panel: \`!verify-panel\` (run it inside the verify channel).`);
+      return;
+    }
+
+    if (commandName === '!verify-panel') {
+      const result = await verification.createPanel(message);
+      await message.reply(result);
+      return;
+    }
+
     if (['!join', '!connect'].includes(commandName)) {
       await message.reply(await music.connect(message));
       return;
@@ -361,7 +395,7 @@ client.on('messageCreate', async (message) => {
     }
 
     if (commandName === '!help') {
-      await message.reply({ embeds: [new EmbedBuilder().setColor(0xe11d48).setTitle('D4C Command Center').setDescription('**Owner:** `!addowner <ID>` | `!removeowner <ID>` | `!owners` | `!sendall <message>`\n\n**Voice:** `!join` / `!connect` | `!leave` / `!disconnect`\n\n**Music:** `!ann <content>` | `!play <song/URL>` | `!search <song>` | `!queue` | `!now` | `!pause` | `!resume` | `!skip` | `!stop` | `!loop on/off` | `!volume 0-200` | `!autoplay <mood>` (tamil, sad, happy, lofi, party, romantic, gym, kpop... or any custom word)\n\n**Voice Control:** `!deafen [@user]` | `!undeafen [@user]` | `!vmute [@user]` | `!vunmute [@user]` | `!dc [@user]` | `!move <target> <channel>` | `!moveall <channelID>` | `!vclist` | `!vchold <@user> [channelID]` | `!vcrelease <@user>` | `!vcholds`\n\n**Audio FX:** `!sfx <sound>` | `!sounds` | `!tts <text>` | `!tts-hi <text>` | `!vcleave`\n\n**Moderation:** `!ban <@user>` | `!kick <@user>` | `!timeout <@user> <duration>` | `!purge <amount>` | `!warn <@user>`\n\n**Giveaways:** `!gstart <duration> <winners> <prize>` | `!greroll <msgID>` | `!gend <msgID>`\n\n**Utility:** `!rr-add <msgID> <emoji> <roleID>` | `!rr-list` | `!setwelcome <#ch>` | `!welcomemsg <text>` | `!setleave <#ch>` | `!setlog <#ch>` | `!ticket-panel` | `!close` | `!cmd-add <name> <response>` | `!cmd-list`')], components: musicControls() });
+      await message.reply({ embeds: [new EmbedBuilder().setColor(0xe11d48).setTitle('D4C Command Center').setDescription('**Owner:** `!addowner <ID>` | `!removeowner <ID>` | `!owners` | `!sendall <message>`\n\n**Voice:** `!join` / `!connect` | `!leave` / `!disconnect`\n\n**Music:** `!ann <content>` | `!play <song/URL>` | `!search <song>` | `!queue` | `!now` | `!pause` | `!resume` | `!skip` | `!stop` | `!loop on/off` | `!volume 0-200` | `!autoplay <mood>` (tamil, sad, happy, lofi, party, romantic, gym, kpop... or any custom word)\n\n**Voice Control:** `!deafen [@user]` | `!undeafen [@user]` | `!vmute [@user]` | `!vunmute [@user]` | `!dc [@user]` | `!move <target> <channel>` | `!moveall <channelID>` | `!vclist` | `!vchold <@user> [channelID]` | `!vcrelease <@user>` | `!vcholds`\n\n**Audio FX:** `!sfx <sound>` | `!sounds` | `!tts <text>` | `!tts-hi <text>` | `!vcleave`\n\n**Moderation:** `!ban <@user>` | `!kick <@user>` | `!timeout <@user> <duration>` | `!purge <amount>` | `!warn <@user>`\n\n**Giveaways:** `!gstart <duration> <winners> <prize>` | `!greroll <msgID>` | `!gend <msgID>`\n\n**Utility:** `!rr-add <msgID> <emoji> <roleID>` | `!rr-list` | `!setwelcome <#ch>` | `!welcomemsg <text>` | `!setleave <#ch>` | `!setlog <#ch>` | `!ticket-panel` | `!close` | `!cmd-add <name> <response>` | `!cmd-list`\n\n**Verification:** `!setverify <#ch>` | `!verifyrole <@role>` | `!verify-panel` (post in the verify channel — users click ✅ Verify + pass a human check to unlock the server)')], components: musicControls() });
     }
 
     // ========================================================================
@@ -996,6 +1030,18 @@ client.on('interactionCreate', async (interaction) => {
       default:
         break;
     }
+  }
+
+  // ==========================================================================
+  // VERIFICATION GATE — available to EVERYONE (before the owner-only guard)
+  // ==========================================================================
+  if (interaction.isButton() && interaction.customId === 'd4c_verify_start') {
+    await verification.handleVerifyStart(interaction);
+    return;
+  }
+  if (interaction.isStringSelectMenu() && interaction.customId === 'd4c_verify_captcha') {
+    await verification.handleCaptcha(interaction);
+    return;
   }
 
   // ----- Button / select-menu interactions (music panel) -----
