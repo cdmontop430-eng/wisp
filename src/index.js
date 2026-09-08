@@ -19,6 +19,7 @@ const serverLog = require('./serverLog');
 const ticketSystem = require('./ticketSystem');
 const moderation = require('./moderation');
 const customCommands = require('./customCommands');
+const audioEffects = require('./audioEffects');
 const { success, error, info, warning } = require('./embedHelper');
 
 const pidFile = path.resolve('data', 'bot.pid');
@@ -333,7 +334,7 @@ client.on('messageCreate', async (message) => {
     }
 
     if (commandName === '!help') {
-      await message.reply({ embeds: [new EmbedBuilder().setColor(0xe11d48).setTitle('D4C Command Center').setDescription('**Owner:** `!addowner <ID>` | `!removeowner <ID>` | `!owners` | `!sendall <message>`\n\n**Voice:** `!join` / `!connect` | `!leave` / `!disconnect`\n\n**Music:** `!ann <content>` | `!play <song/URL>` | `!search <song>` | `!queue` | `!now` | `!pause` | `!resume` | `!skip` | `!stop` | `!loop on/off` | `!volume 0-200`\n\n**Voice Control:** `!deafen [@user]` | `!undeafen [@user]` | `!vmute [@user]` | `!vunmute [@user]` | `!dc [@user]` | `!move <target> <channel>`\n\n**Moderation:** `!ban <@user>` | `!kick <@user>` | `!timeout <@user> <duration>` | `!purge <amount>` | `!warn <@user>`\n\n**Giveaways:** `!gstart <duration> <winners> <prize>` | `!greroll <msgID>` | `!gend <msgID>`\n\n**Utility:** `!rr-add <msgID> <emoji> <roleID>` | `!rr-list` | `!setwelcome <#ch>` | `!welcomemsg <text>` | `!setleave <#ch>` | `!setlog <#ch>` | `!ticket-panel` | `!close` | `!cmd-add <name> <response>` | `!cmd-list`')], components: musicControls() });
+      await message.reply({ embeds: [new EmbedBuilder().setColor(0xe11d48).setTitle('D4C Command Center').setDescription('**Owner:** `!addowner <ID>` | `!removeowner <ID>` | `!owners` | `!sendall <message>`\n\n**Voice:** `!join` / `!connect` | `!leave` / `!disconnect`\n\n**Music:** `!ann <content>` | `!play <song/URL>` | `!search <song>` | `!queue` | `!now` | `!pause` | `!resume` | `!skip` | `!stop` | `!loop on/off` | `!volume 0-200`\n\n**Voice Control:** `!deafen [@user]` | `!undeafen [@user]` | `!vmute [@user]` | `!vunmute [@user]` | `!dc [@user]` | `!move <target> <channel>` | `!moveall <channelID>` | `!vclist` | `!vchold <@user> [channelID]` | `!vcrelease <@user>` | `!vcholds`\n\n**Audio FX:** `!sfx <sound>` | `!sounds` | `!tts <text>` | `!tts-hi <text>` | `!vcleave`\n\n**Moderation:** `!ban <@user>` | `!kick <@user>` | `!timeout <@user> <duration>` | `!purge <amount>` | `!warn <@user>`\n\n**Giveaways:** `!gstart <duration> <winners> <prize>` | `!greroll <msgID>` | `!gend <msgID>`\n\n**Utility:** `!rr-add <msgID> <emoji> <roleID>` | `!rr-list` | `!setwelcome <#ch>` | `!welcomemsg <text>` | `!setleave <#ch>` | `!setlog <#ch>` | `!ticket-panel` | `!close` | `!cmd-add <name> <response>` | `!cmd-list`')], components: musicControls() });
     }
 
     // ========================================================================
@@ -384,6 +385,119 @@ client.on('messageCreate', async (message) => {
       const cleanTargetId = targetId?.toLowerCase() === 'all' ? null : targetId?.replace(/[<@!>]/g, '');
       const result = await voiceControl.move(message.member, cleanChannelId, cleanTargetId);
       await message.reply({ embeds: [result.ok ? success({ title: '🔄 Moved', description: result.message }) : error({ title: 'Cannot Move', description: result.message })] });
+      return;
+    }
+
+    // ----- Move ALL members to one channel -----
+    if (commandName === '!moveall') {
+      const channelId = args[0]?.replace(/[<#>]/g, '');
+      if (!channelId) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!moveall <voice-channel-id>` — moves everyone in every voice channel to that channel.' })] });
+        return;
+      }
+      const result = await voiceControl.moveAll(message.member, channelId);
+      await message.reply({ embeds: [result.ok ? success({ title: '🧲 Move All', description: result.message }) : error({ title: 'Cannot Move All', description: result.message })] });
+      return;
+    }
+
+    // ----- List voice channels with member counts -----
+    if (commandName === '!vclist') {
+      const channels = voiceControl.listVoiceChannels(message.guild);
+      if (channels.length === 0) {
+        await message.reply({ embeds: [warning({ title: 'No Voice Channels', description: 'There are no voice channels in this server.' })] });
+        return;
+      }
+      const lines = channels.map((c) => `**${c.name}** (\`${c.id}\`) — ${c.count} user(s)${c.members.length ? '\n  └ ' + c.members.slice(0, 10).join(', ') : ''}`);
+      await message.reply({ embeds: [info({ title: 'Voice Channels', description: lines.slice(0, 15).join('\n') })] });
+      return;
+    }
+
+    // ----- Hold/loop a user in a voice channel (they cannot leave) -----
+    if (commandName === '!vchold') {
+      const [targetArg, chanArg] = args;
+      if (!targetArg) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!vchold <@user> [voice-channel-id]` — force-keeps user in voice.\nOmit channel to hold them in their current channel.' })] });
+        return;
+      }
+      const targetId = targetArg.replace(/[<@!>]/g, '');
+      const destChannelId = chanArg ? chanArg.replace(/[<#>]/g, '') : '';
+      const result = await voiceControl.holdMember(message.member, targetId, destChannelId || null);
+      await message.reply({ embeds: [result.ok ? success({ title: '🔗 Voice Hold', description: result.message }) : error({ title: 'Cannot Hold', description: result.message })] });
+      return;
+    }
+
+    // ----- Release a held user -----
+    if (commandName === '!vcrelease') {
+      const targetArg = args[0];
+      if (!targetArg) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!vcrelease <@user>`' })] });
+        return;
+      }
+      const targetId = targetArg.replace(/[<@!>]/g, '');
+      const result = voiceControl.releaseHold(message.member, targetId);
+      await message.reply({ embeds: [result.ok ? success({ title: '🔓 Released', description: result.message }) : error({ title: 'Not Held', description: result.message })] });
+      return;
+    }
+
+    // ----- List held users -----
+    if (commandName === '!vcholds') {
+      const holdsList = voiceControl.listHolds(message.guild.id);
+      const entries = Object.entries(holdsList);
+      if (entries.length === 0) {
+        await message.reply({ embeds: [warning({ title: 'No Holds', description: 'No users are currently held in voice.' })] });
+        return;
+      }
+      const lines = entries.map(([userId, chanId]) => `<@${userId}> → <#${chanId}>`);
+      await message.reply({ embeds: [info({ title: 'Voice Holds', description: lines.join('\n') })] });
+      return;
+    }
+
+    // ========================================================================
+    // AUDIO EFFECTS — soundboard + TTS
+    // ========================================================================
+    if (commandName === '!sounds') {
+      const sounds = audioEffects.listSounds();
+      const desc = sounds.map((s) => `**${s.name}** — ${s.desc}`).join('\n');
+      await message.reply({ embeds: [info({ title: '🔊 Soundboard', description: `${desc}\n\nPlay with \`!sfx <name>\`` })] });
+      return;
+    }
+
+    if (commandName === '!sfx') {
+      const soundName = args[0]?.toLowerCase();
+      const channel = message.member?.voice?.channel;
+      if (!soundName) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!sfx <sound>` — join a voice channel first.\nUse `!sounds` to list effects.' })] });
+        return;
+      }
+      if (!channel) {
+        await message.reply({ embeds: [error({ title: 'Not in Voice', description: 'Join a voice channel first, then use `!sfx <sound>`.' })] });
+        return;
+      }
+      const result = await audioEffects.playSound({ guild: message.guild, channelId: channel.id, adapterCreator: message.guild.voiceAdapterCreator, soundName });
+      await message.reply({ embeds: [result.ok ? success({ title: '🔊 Sound Effect', description: result.message }) : error({ title: 'Sound Error', description: result.message })] });
+      return;
+    }
+
+    if (/^!tts(-\w+)?$/.test(commandName)) {
+      const channel = message.member?.voice?.channel;
+      const text = args.join(' ');
+      if (!text) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!tts <text>` — speaks text in your voice channel.\nLanguages: `!tts-en <text>`, `!tts-hi`, `!tts-ta`, `!tts-es`, etc.' })] });
+        return;
+      }
+      if (!channel) {
+        await message.reply({ embeds: [error({ title: 'Not in Voice', description: 'Join a voice channel first, then use `!tts <text>`.' })] });
+        return;
+      }
+      const lang = commandName.split('-')[1] || 'en';
+      const result = await audioEffects.playTTS({ guild: message.guild, channelId: channel.id, adapter: message.guild.voiceAdapterCreator, text, lang });
+      await message.reply({ embeds: [result.ok ? success({ title: '🗣️ TTS', description: result.message }) : error({ title: 'TTS Error', description: result.message })] });
+      return;
+    }
+
+    if (commandName === '!vcleave') {
+      const left = audioEffects.leaveVoice(message.guild.id);
+      await message.reply({ embeds: [left ? success({ title: '👋 Left Voice', description: 'Disconnected the audio effect bot from voice.' }) : info({ title: 'Not Connected', description: 'No audio effect bot in voice.' })] });
       return;
     }
 
@@ -660,6 +774,105 @@ client.on('messageCreate', async (message) => {
     }
 
     // ========================================================================
+    // UTILITY & FUN COMMANDS — ping, avatar, serverinfo, userinfo, poll, 8ball
+    // ========================================================================
+    if (commandName === '!ping') {
+      const sent = await message.reply({ embeds: [info({ title: '🏓 Pinging...', description: 'Measuring latency...' })] });
+      const ws = Math.round(client.ws.ping);
+      const roundtrip = sent.createdTimestamp - message.createdTimestamp;
+      await sent.edit({ embeds: [success({ title: '🏓 Pong!', description: `WebSocket: **${ws}ms**\nRoundtrip: **${roundtrip}ms**` })] });
+      return;
+    }
+
+    if (commandName === '!uptime') {
+      const seconds = Math.floor(process.uptime());
+      const d = Math.floor(seconds / 86400);
+      const h = Math.floor((seconds % 86400) / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = seconds % 60;
+      await message.reply({ embeds: [info({ title: '⏱️ Uptime', description: `**${d}d ${h}h ${m}m ${s}s**` })] });
+      return;
+    }
+
+    if (commandName === '!avatar') {
+      const targetId = args[0]?.replace(/[<@!>]/g, '') || message.author.id;
+      const user = await client.users.fetch(targetId).catch(() => null);
+      if (!user) {
+        await message.reply({ embeds: [error({ title: 'Not Found', description: 'Could not find that user.' })] });
+        return;
+      }
+      const avatar = user.displayAvatarURL({ size: 1024, extension: 'png' });
+      await message.reply({ embeds: [info({ title: `${user.username}'s Avatar`, image: avatar, url: avatar })] });
+      return;
+    }
+
+    if (commandName === '!serverinfo') {
+      const g = message.guild;
+      const embed = info({
+        title: g.name,
+        description: `**ID:** ${g.id}\n**Owner:** <@${g.ownerId}>\n**Created:** <t:${Math.floor(g.createdTimestamp / 1000)}:R>\n**Members:** ${g.memberCount}\n**Channels:** ${g.channels.cache.size}\n**Roles:** ${g.roles.cache.size}\n**Boosts:** ${g.premiumSubscriptionCount || 0}`,
+        thumbnail: g.iconURL({ size: 128 }),
+      });
+      await message.reply({ embeds: [embed] });
+      return;
+    }
+
+    if (commandName === '!userinfo') {
+      const targetId = args[0]?.replace(/[<@!>]/g, '') || message.author.id;
+      const member = await message.guild.members.fetch(targetId).catch(() => null);
+      if (!member) {
+        await message.reply({ embeds: [error({ title: 'Not Found', description: 'Could not find that member.' })] });
+        return;
+      }
+      const roles = member.roles.cache.filter((r) => r.id !== message.guild.id).map((r) => r.name).join(', ') || 'None';
+      const embed = info({
+        title: member.user.username,
+        description: `**ID:** ${member.id}\n**Joined:** <t:${Math.floor(member.joinedTimestamp / 1000)}:R>\n**Account:** <t:${Math.floor(member.user.createdTimestamp / 1000)}:R>\n**Roles:** ${roles}\n**Bot:** ${member.user.bot ? 'Yes' : 'No'}`,
+        thumbnail: member.user.displayAvatarURL({ size: 128 }),
+      });
+      await message.reply({ embeds: [embed] });
+      return;
+    }
+
+    if (commandName === '!poll') {
+      const question = args.join(' ');
+      if (!question) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!poll <question>` — creates a 👍/👎 poll.' })] });
+        return;
+      }
+      const pollMsg = await message.channel.send({ embeds: [info({ title: '📊 Poll', description: question, footer: `Poll by ${message.author.username}` })] });
+      await pollMsg.react('👍');
+      await pollMsg.react('👎');
+      await pollMsg.react('🤷');
+      return;
+    }
+
+    if (commandName === '!8ball') {
+      const question = args.join(' ');
+      if (!question) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!8ball <question>`' })] });
+        return;
+      }
+      const answers = ['Yes', 'No', 'Maybe', 'Definitely!', 'Ask again later', 'Absolutely not', 'I think so', 'Cannot predict now', 'Signs point to yes', 'Very doubtful'];
+      const answer = answers[Math.floor(Math.random() * answers.length)];
+      await message.reply({ embeds: [info({ title: '🎱 Magic 8-Ball', description: `**Q:** ${question}\n**A:** ${answer}` })] });
+      return;
+    }
+
+    if (commandName === '!coinflip') {
+      const result = Math.random() < 0.5 ? 'Heads' : 'Tails';
+      await message.reply({ embeds: [info({ title: '🪙 Coin Flip', description: `You got **${result}**!` })] });
+      return;
+    }
+
+    if (commandName === '!dice') {
+      const sides = Math.max(2, Math.min(100, parseInt(args[0]) || 6));
+      const roll = Math.floor(Math.random() * sides) + 1;
+      await message.reply({ embeds: [info({ title: '🎲 Dice Roll', description: `Rolled a **${roll}** (d${sides})` })] });
+      return;
+    }
+
+    // ========================================================================
     // Custom command execution (check if message matches a custom command)
     // ========================================================================
     const customCmd = customCommands.getCommand(message.guild.id, commandName.replace('!', ''));
@@ -766,10 +979,12 @@ client.on('messageUpdate', (oldMessage, newMessage) => {
   if (logChannel) serverLog.logMessageEdit(oldMessage, newMessage, logChannel);
 });
 
-// Voice state changes — log joins/leaves/moves
+// Voice state changes — log joins/leaves/moves + enforce voice holds
 client.on('voiceStateUpdate', (oldState, newState) => {
   const logChannel = serverLog.getLogChannel(newState.guild);
   if (logChannel) serverLog.logVoiceState(oldState, newState, logChannel);
+  // Re-pin any held users (voice hold / loop)
+  voiceControl.applyHolds(oldState, newState);
 });
 
 // Reaction added — reaction roles + tickets

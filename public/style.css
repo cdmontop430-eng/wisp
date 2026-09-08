@@ -337,3 +337,45 @@ textarea { resize: vertical; min-height: 60px; }
   gap: 1rem;
   padding: 0 0.25rem;
 }
+
+/* ================= Custom sections in preview ================= */
+.section-box {
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+  margin: 0 -0.5rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+.section-box:hover {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+.section-remove {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: var(--red);
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.section-box:hover .section-remove { opacity: 1; }
+.section-remove:hover { background: #ff4d4f; }
+
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}

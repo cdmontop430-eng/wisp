@@ -248,18 +248,33 @@ function loadTemplate(name) {
   previewDescription.textContent = template.description;
 
   previewFields.innerHTML = '';
-  template.fields.forEach((field) => {
-    const fieldEl = document.createElement('div');
-    fieldEl.className = 'embed-field';
-    fieldEl.innerHTML = `
-      <div class="embed-field-name" contenteditable="true">${field.name}</div>
-      <div class="embed-field-value" contenteditable="true">${field.value}</div>
-    `;
-    previewFields.appendChild(fieldEl);
-  });
+  template.fields.forEach((field) => addSection(field.name, field.value));
 
   showToast(`Loaded "${name}" template — click any text to edit`, 'info');
 }
+
+// Add a new editable section (custom section support)
+function addSection(name = '📌 New Section', value = 'Click to edit this line\nAdd another line here') {
+  const fieldEl = document.createElement('div');
+  fieldEl.className = 'embed-field section-box';
+  fieldEl.innerHTML = `
+    <button class="section-remove" title="Remove section">✕</button>
+    <div class="embed-field-name" contenteditable="true">${name}</div>
+    <div class="embed-field-value" contenteditable="true">${value}</div>
+  `;
+  fieldEl.querySelector('.section-remove').addEventListener('click', () => {
+    fieldEl.remove();
+    showToast('Section removed', 'info');
+  });
+  previewFields.appendChild(fieldEl);
+  return fieldEl;
+}
+
+// Add Section button
+document.getElementById('add-section-btn').addEventListener('click', () => {
+  addSection('📌 New Section', 'Edit this line\nAdd another line');
+  showToast('Custom section added — click to edit', 'info');
+});
 
 // Channel validation
 validateChannelBtn.addEventListener('click', async () => {

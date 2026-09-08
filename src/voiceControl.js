@@ -2,13 +2,18 @@
 // voiceControl.js
 // ---------------------------------------------------------------------------
 // Voice channel management utilities — deafen, mute, unmute, undeafen,
-// disconnect, and move members between voice channels.
+// disconnect, move members, move everyone, and hold/loop users in a channel.
 //
 // All functions return { ok: boolean, message: string } for easy embed
 // responses via the shared embed helper.
 // ============================================================================
 
 const { PermissionFlagsBits } = require('discord.js');
+
+// Holds: guildId -> { userId -> channelId }
+// When a user is "held", the bot force-keeps them in the held channel
+// (e.g. voice-stuck / loop user).
+const holds = new Map();
 
 /**
  * Check that the bot has permission to moderate voice in this guild.
@@ -222,4 +227,156 @@ async function move(moderator, targetChannelId, targetUserId) {
   return { ok: true, message: `Moved **${count}** member(s) to **${destChannel.name}**.` };
 }
 
-module.exports = { deafen, undeafen, mute, unmute, disconnect, move };
+/**
+ * Move ALL members from every voice channel to one destination channel.
+ * @param {GuildMember} moderator
+ * @param {string} destChannelId - Destination voice channel ID.
+ */
+async function moveAll(moderator, destChannelId) {
+  if (!moderator.guild.members.me?.permissions.has(PermissionFlagsBits.MoveMembers)) {
+    return { ok: false, message: 'I need **Move Members** permission.' };
+  }
+
+  const destChannel = moderator.guild.channels.cache.get(destChannelId);
+  if (!destChannel || !destChannel.isVoiceBased()) {
+    return { ok: false, message: 'Destination channel not found or is not a voice channel.' };
+  }
+
+  let count = 0;
+  for (const [, channel] of moderator.guild.channels.cache) {
+    if (!channel.isVoiceBased()) continue;
+    for (const [, member] of channel.members) {
+      if (member.id === moderator.guild.members.me.id) continue;
+      try {
+        await member.voice.setChannel(destChannel.id, `Move-all by ${moderator.user.tag}`);
+        count++;
+      } catch { /* skip */ }
+    }
+  }
+  return { ok: true, message: `Moved **${count}** member(s) from all channels to **${destChannel.name}**.` };
+}
+
+/**
+ * Hold ("loop") a user in a specific voice channel — the bot force-keeps
+ * them there even if they try to leave or move. Prevents them from escaping.
+ * @param {GuildMember} moderator
+ * @param {string} targetId - The user ID to hold.
+ * @param {string} destChannelId - The channel to keep them in.
+ */
+async function holdMember(moderator, targetId, destChannelId) {
+  if (!moderator.guild.members.me?.permissions.has(PermissionFlagsBits.MoveMembers)) {
+    return { ok: false, message: 'I need **Move Members** permission.' };
+  }
+  const target = await moderator.guild.members.fetch(targetId).catch(() => null);
+  if (!target) return { ok: false, message: 'Could not find that user in this server.' };
+
+  const destChannel = moderator.guild.channels.cache.get(destChannelId);
+  if (destChannel && !destChannel.isVoiceBased()) {
+    return { ok: false, message: 'That channel is not a voice channel.' };
+  }
+
+  const guildHolds = holds.get(moderator.guild.id) || {};
+  guildHolds[targetId] = destChannelId;
+  holds.set(moderator.guild.id, guildHolds);
+
+  // If they're currently in voice, pin them immediately.
+  if (destChannel && target.voice?.channel) {
+    try {
+      await target.voice.setChannel(destChannel.id, `Held by ${moderator.user.tag}`);
+    } catch { /* ignore */ }
+  }
+
+  return {
+    ok: true,
+    message: destChannelId
+      ? `Now holding **${target.user.tag}** in <#${destChannelId}>. They cannot leave this channel.`
+      : `Now holding **${target.user.tag}** in their current channel. They cannot leave voice.`,
+  };
+}
+
+/**
+ * Release a user from being held.
+ */
+function releaseHold(moderator, targetId) {
+  const guildHolds = holds.get(moderator.guild.id);
+  if (!guildHolds?.[targetId]) {
+    return { ok: false, message: 'That user is not being held.' };
+  }
+  delete guildHolds[targetId];
+  holds.set(moderator.guild.id, guildHolds);
+  return { ok: true, message: `Released <@${targetId}> from voice hold.` };
+}
+
+/**
+ * List all users currently being held in the guild.
+ */
+function listHolds(guildId) {
+  return holds.get(guildId) || {};
+}
+
+/**
+ * Called from the voiceStateUpdate event. Re-pins any held users.
+ * @param {import('discord.js').VoiceState} oldState
+ * @param {import('discord.js').VoiceState} newState
+ */
+async function applyHolds(oldState, newState) {
+  const guildHolds = holds.get(newState.guild?.id);
+  if (!guildHolds) return;
+
+  const heldChannelId = guildHolds[newState.member?.id];
+  if (!heldChannelId) return;
+
+  const member = newState.member;
+  const inHeldChannel = newState.channelId === heldChannelId;
+  const hasValidConnection = newState.channelId || newState.connectionState === 0 || newState.member?.voice?.channel;
+
+  // If they left voice entirely, pull them back into the held channel.
+  if (!newState.channelId) {
+    // Give Discord a moment to confirm the leave, then force them back.
+    setTimeout(async () => {
+      try {
+        const fresh = await newState.guild.members.fetch(member.id).catch(() => null);
+        if (!fresh || holds.get(newState.guild.id)?.[member.id] !== heldChannelId) return;
+        if (!fresh.voice?.channel || fresh.voice.channelId !== heldChannelId) {
+          await fresh.voice.setChannel(heldChannelId, 'Held in voice by D4C');
+          console.log(`[voiceControl] Re-pinned ${member.user.tag} to ${heldChannelId}`);
+        }
+      } catch (err) {
+        console.error(`[voiceControl] Failed to re-pin held user: ${err.message}`);
+      }
+    }, 500);
+  }
+}
+
+/**
+ * List all voice channels with member counts.
+ */
+function listVoiceChannels(guild) {
+  const list = [];
+  for (const [, channel] of guild.channels.cache) {
+    if (!channel.isVoiceBased()) continue;
+    const members = channel.members.filter((m) => !m.user.bot).map((m) => m.user.username);
+    list.push({
+      id: channel.id,
+      name: channel.name,
+      count: channel.members.size,
+      members,
+    });
+  }
+  return list;
+}
+
+module.exports = {
+  deafen,
+  undeafen,
+  mute,
+  unmute,
+  disconnect,
+  move,
+  moveAll,
+  holdMember,
+  releaseHold,
+  listHolds,
+  applyHolds,
+  listVoiceChannels,
+};
