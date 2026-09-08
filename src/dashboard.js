@@ -103,6 +103,8 @@ function validatePayload(body) {
   }
 
   return { ok: true, data: { channelId, title, description, sections } };
+}
+
 // ---------------------------------------------------------------------------
 // Build a Discord EmbedBuilder from validated dashboard data.
 // ---------------------------------------------------------------------------
@@ -241,4 +243,3 @@ function createDashboard(discordClient) {
 }
 
 module.exports = { createDashboard, buildDiscordEmbed, validatePayload };
-}
