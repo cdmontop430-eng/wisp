@@ -305,6 +305,31 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
+    // !autoplay            → enable related-track autoplay
+    // !autoplay <mood>     → endless mood radio (tamil, sad, happy, or ANY custom word)
+    // !autoplay off        → disable mood autoplay
+    if (commandName === '!autoplay') {
+      const arg = (content || '').trim().toLowerCase();
+      if (!arg || arg === 'on') {
+        music.setAutoplayMood(message.guild.id, null);
+        await message.reply(
+          `♾️ Autoplay **enabled** — the bot keeps playing related tracks after each song.\n` +
+          `For endless mood radio, try: ${music.listMoods().map((m) => `\`${m}\``).join(', ')}\n` +
+          `Example: \`!autoplay tamil\` — any custom word works too (e.g. \`!autoplay vibecifi\`).`
+        );
+        return;
+      }
+      if (arg === 'off') {
+        music.setAutoplayMood(message.guild.id, null);
+        await message.reply('⏹️ Mood autoplay disabled. Playback stops when the queue is empty.');
+        return;
+      }
+      await message.reply(`🔎 Setting up **${arg}** mood radio — searching tracks and connecting to voice...`);
+      const result = await music.startMoodAutoplay(message, arg);
+      await message.reply(result);
+      return;
+    }
+
     if (commandName === '!247') {
       await message.reply('The bot stays online while its hosting process is running. Use PM2, Docker, Railway, Render, or a VPS for 24/7 uptime.');
       return;
@@ -334,7 +359,7 @@ client.on('messageCreate', async (message) => {
     }
 
     if (commandName === '!help') {
-      await message.reply({ embeds: [new EmbedBuilder().setColor(0xe11d48).setTitle('D4C Command Center').setDescription('**Owner:** `!addowner <ID>` | `!removeowner <ID>` | `!owners` | `!sendall <message>`\n\n**Voice:** `!join` / `!connect` | `!leave` / `!disconnect`\n\n**Music:** `!ann <content>` | `!play <song/URL>` | `!search <song>` | `!queue` | `!now` | `!pause` | `!resume` | `!skip` | `!stop` | `!loop on/off` | `!volume 0-200`\n\n**Voice Control:** `!deafen [@user]` | `!undeafen [@user]` | `!vmute [@user]` | `!vunmute [@user]` | `!dc [@user]` | `!move <target> <channel>` | `!moveall <channelID>` | `!vclist` | `!vchold <@user> [channelID]` | `!vcrelease <@user>` | `!vcholds`\n\n**Audio FX:** `!sfx <sound>` | `!sounds` | `!tts <text>` | `!tts-hi <text>` | `!vcleave`\n\n**Moderation:** `!ban <@user>` | `!kick <@user>` | `!timeout <@user> <duration>` | `!purge <amount>` | `!warn <@user>`\n\n**Giveaways:** `!gstart <duration> <winners> <prize>` | `!greroll <msgID>` | `!gend <msgID>`\n\n**Utility:** `!rr-add <msgID> <emoji> <roleID>` | `!rr-list` | `!setwelcome <#ch>` | `!welcomemsg <text>` | `!setleave <#ch>` | `!setlog <#ch>` | `!ticket-panel` | `!close` | `!cmd-add <name> <response>` | `!cmd-list`')], components: musicControls() });
+      await message.reply({ embeds: [new EmbedBuilder().setColor(0xe11d48).setTitle('D4C Command Center').setDescription('**Owner:** `!addowner <ID>` | `!removeowner <ID>` | `!owners` | `!sendall <message>`\n\n**Voice:** `!join` / `!connect` | `!leave` / `!disconnect`\n\n**Music:** `!ann <content>` | `!play <song/URL>` | `!search <song>` | `!queue` | `!now` | `!pause` | `!resume` | `!skip` | `!stop` | `!loop on/off` | `!volume 0-200` | `!autoplay <mood>` (tamil, sad, happy, lofi, party, romantic, gym, kpop... or any custom word)\n\n**Voice Control:** `!deafen [@user]` | `!undeafen [@user]` | `!vmute [@user]` | `!vunmute [@user]` | `!dc [@user]` | `!move <target> <channel>` | `!moveall <channelID>` | `!vclist` | `!vchold <@user> [channelID]` | `!vcrelease <@user>` | `!vcholds`\n\n**Audio FX:** `!sfx <sound>` | `!sounds` | `!tts <text>` | `!tts-hi <text>` | `!vcleave`\n\n**Moderation:** `!ban <@user>` | `!kick <@user>` | `!timeout <@user> <duration>` | `!purge <amount>` | `!warn <@user>`\n\n**Giveaways:** `!gstart <duration> <winners> <prize>` | `!greroll <msgID>` | `!gend <msgID>`\n\n**Utility:** `!rr-add <msgID> <emoji> <roleID>` | `!rr-list` | `!setwelcome <#ch>` | `!welcomemsg <text>` | `!setleave <#ch>` | `!setlog <#ch>` | `!ticket-panel` | `!close` | `!cmd-add <name> <response>` | `!cmd-list`')], components: musicControls() });
     }
 
     // ========================================================================

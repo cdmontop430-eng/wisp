@@ -171,10 +171,47 @@ function normalizeYouTubeUrl(input) {
   return `https://www.youtube.com/watch?v=${videoId}`;
 }
 
+// ---------------------------------------------------------------------------
+// Mood-based autoplay — each mood maps to several SoundCloud search queries.
+// When `!autoplay <mood>` is set, the bot keeps the music going forever by
+// picking a random query from that mood whenever the queue runs dry.
+// Any custom word works too (e.g. `!autoplay vibecifi` searches it directly).
+// ---------------------------------------------------------------------------
+const MOODS = {
+  tamil:      ['tamil hit songs 2024', 'tamil melody songs', 'tamil kuthu songs', 'anirudh hits', 'tamil evergreen melody', 'tamil love hits', 'tamil mass songs'],
+  sad:        ['sad tamil songs', 'sad songs playlist', 'emotional tamil songs', 'sad lofi songs', 'breakup songs tamil', 'sad melody songs'],
+  happy:      ['happy feel good songs', 'upbeat tamil songs', 'feel good pop hits', 'happy english songs', 'feel good melody tamil'],
+  romantic:   ['tamil romantic hits', 'love songs tamil', 'romantic melody songs', 'tamil love failure songs', 'romantic english hits'],
+  lofi:       ['lofi hip hop beats', 'tamil lofi songs', 'lofi study playlist', 'chill lofi mix', 'sleepy lofi beats'],
+  party:      ['party songs tamil', 'edm party mix', 'kuthu songs tamil', 'dance hits tamil', 'party english songs'],
+  english:    ['top english hits 2024', 'english pop songs', 'billboard hits', 'classic rock hits', 'english acoustic songs'],
+  hindi:      ['hindi hit songs 2024', 'bollywood hits', 'hindi melody songs', 'hindi romantic songs', 'hindi party songs'],
+  telugu:     ['telugu hit songs', 'telugu melody songs', 'telugu love songs', 'telugu mass songs'],
+  malayalam:  ['malayalam hit songs', 'malayalam melody songs', 'malayalam love songs'],
+  kannada:    ['kannada hit songs', 'kannada melody songs', 'kannada love songs'],
+  punjabi:    ['punjabi hits 2024', 'punjabi party songs', 'punjabi sad songs'],
+  kpop:       ['kpop hits 2024', 'kpop girl group', 'kpop boy group', 'kpop chill songs'],
+  chill:      ['chill vibes playlist', 'chill acoustic songs', 'relaxing music playlist', 'chill english songs'],
+  gym:        ['gym workout songs', 'motivational workout mix', 'phonk gym songs', 'hype workout music'],
+  devotional: ['tamil devotional songs', 'bhakti songs', 'tamil god songs', 'devotional morning songs'],
+  melody:     ['tamil melody hits', 'evergreen melody songs', 'soft melody playlist', 'ilaiyaraaja melody hits'],
+  mass:       ['tamil mass songs', 'tamil intro songs', 'mass beats tamil', 'background score tamil'],
+  '90s':      ['90s tamil hits', '90s melody songs', '90s english hits', 'retro songs tamil'],
+  remix:      ['tamil remix songs', 'edm remix hits', 'club remix songs', 'slowed reverb songs'],
+};
+
+function getMoodQueries(moodKey) {
+  if (!moodKey) return null;
+  const key = String(moodKey).toLowerCase().trim();
+  if (MOODS[key]) return MOODS[key];
+  // Unknown/custom mood → use the raw word as the search query itself
+  return [key];
+}
+
 function getQueue(guildId) {
   if (!queues.has(guildId)) {
     const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Play } });
-    const queue = { connection: null, player, tracks: [], current: null, playing: false, loop: false, volume: 1, lastError: null };
+    const queue = { connection: null, player, tracks: [], current: null, playing: false, loop: false, volume: 1, lastError: null, autoplayMood: null };
     player.on(AudioPlayerStatus.Idle, () => {
       onTrackEnd(guildId);
       playNext(guildId);
@@ -440,17 +477,28 @@ async function onTrackEnd(guildId) {
 
   if (queue.loop) {
     queue.tracks.unshift(queue.current);
-  } else if (queue.autoplay !== false && queue.tracks.length === 0) {
-    const lastTitle = cleanSongTitle(queue.current.title);
-    console.log(`[music:${guildId}] Autoplay active! Searching related tracks for "${lastTitle}"...`);
+  } else if (queue.tracks.length === 0 && (queue.autoplayMood || queue.autoplay !== false)) {
+    // Pick the search query: mood-based autoplay uses a random query from the
+    // mood's query pool; default autoplay continues with the last song's title.
+    let query;
+    if (queue.autoplayMood) {
+      const pool = getMoodQueries(queue.autoplayMood);
+      query = pool[Math.floor(Math.random() * pool.length)];
+      console.log(`[music:${guildId}] Mood autoplay "${queue.autoplayMood}" → searching "${query}"...`);
+    } else {
+      query = cleanSongTitle(queue.current.title);
+      console.log(`[music:${guildId}] Autoplay active! Searching related tracks for "${query}"...`);
+    }
     try {
       await initPlayDl();
-      const related = await play.search(lastTitle, { limit: 3, source: { soundcloud: 'tracks' } });
-      if (related && related.length > 1) {
-        const nextTrack = related[1] || related[0];
+      const related = await play.search(query, { limit: 5, source: { soundcloud: 'tracks' } });
+      // Pick a random result (skip index 0 to avoid repeating the same top hit)
+      const candidates = (related || []).filter(Boolean);
+      const nextTrack = candidates.length > 1 ? candidates[1 + Math.floor(Math.random() * (candidates.length - 1))] : candidates[0];
+      if (nextTrack) {
         queue.tracks.push({
           title: nextTrack.title || nextTrack.name || 'Related Song',
-          url: nextTrack.url,
+          url: nextTrack.url || nextTrack.permalink,
           thumbnail: nextTrack.thumbnail || null
         });
         console.log(`[music:${guildId}] Autoplay queued next song: "${nextTrack.title || nextTrack.name}"`);
@@ -699,4 +747,82 @@ function list(guildId) {
   return queues.get(guildId)?.tracks ?? [];
 }
 
-module.exports = { addTrack, connect, normalizeYouTubeUrl, skip, pause, resume, setLoop, setVolume, status, search, onTrackEnd, stop, leave, list };
+// ---------------------------------------------------------------------------
+// Mood autoplay controls — used by the !autoplay command in index.js
+// ---------------------------------------------------------------------------
+function setAutoplayMood(guildId, mood) {
+  const queue = getQueue(guildId);
+  queue.autoplayMood = mood || null;
+  return queue.autoplayMood;
+}
+
+function getAutoplayMood(guildId) {
+  return queues.get(guildId)?.autoplayMood ?? null;
+}
+
+// Immediately search a mood and queue `count` tracks so playback can start
+// right away when the user types `!autoplay <mood>` with an empty queue.
+async function queueMoodTracks(guildId, mood, count = 2) {
+  const pool = getMoodQueries(mood);
+  if (!pool) return 0;
+  await initPlayDl();
+  let added = 0;
+  const seen = new Set();
+  for (let attempt = 0; attempt < 3 && added < count; attempt++) {
+    const query = pool[Math.floor(Math.random() * pool.length)];
+    try {
+      const results = await play.search(query, { limit: 10, source: { soundcloud: 'tracks' } });
+      for (const result of results || []) {
+        const url = result.permalink || result.url;
+        if (!url || seen.has(url)) continue;
+        seen.add(url);
+        const queue = getQueue(guildId);
+        queue.tracks.push({
+          title: result.name || result.title || 'Mood Track',
+          url,
+          thumbnail: result.thumbnail || null
+        });
+        added++;
+        if (added >= count) break;
+      }
+    } catch (err) {
+      console.log(`[music:${guildId}] Mood search "${query}" failed: ${err.message}`);
+    }
+  }
+  console.log(`[music:${guildId}] Mood "${mood}" queued ${added} track(s).`);
+  return added;
+}
+
+function listMoods() {
+  return Object.keys(MOODS);
+}
+
+// One-shot `!autoplay <mood>` handler: joins the user's voice channel, sets the
+// mood, immediately queues tracks, and starts playback. Returns a status string.
+async function startMoodAutoplay(message, mood) {
+  const voiceChannel = message.member?.voice?.channel;
+  if (!voiceChannel) return '❌ Join a voice channel first, then use `!autoplay <mood>`.';
+
+  // Reuse connect() to join voice with all the error handling/logging intact
+  const connectResult = await connect(message);
+  if (connectResult.startsWith('Voice connection failed') || connectResult.startsWith('❌')) {
+    return connectResult;
+  }
+
+  const guildId = message.guild.id;
+  const added = await queueMoodTracks(guildId, mood, 2);
+  if (added === 0) {
+    return `⚠️ Couldn't find any tracks for mood **${mood}**. Try one of: ${Object.keys(MOODS).join(', ')}`;
+  }
+  setAutoplayMood(guildId, mood);
+
+  const queue = getQueue(guildId);
+  if (!queue.playing) await playNext(guildId);
+
+  if (!queue.playing) {
+    return `⚠️ Queued mood tracks but playback failed. ${queue.lastError || 'Try again or use a SoundCloud link.'}`;
+  }
+  return `♾️ **Mood autoplay: ${mood}** — queued ${added} track(s) and started playing. The bot will keep playing ${mood} songs forever. Use \`!autoplay off\` to stop.`;
+}
+
+module.exports = { addTrack, connect, normalizeYouTubeUrl, skip, pause, resume, setLoop, setVolume, status, search, onTrackEnd, stop, leave, list, setAutoplayMood, getAutoplayMood, queueMoodTracks, startMoodAutoplay, listMoods };
