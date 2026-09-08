@@ -209,22 +209,21 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
-    if (commandName === '!verifyrole') {
-      // Optional override: change which role verified users receive.
-      // With no arguments -> resets to the default verified role.
-      if (args.length === 0) {
-        verification.setVerifiedRole(message.guild.id, null);
-        await message.reply('✅ Verified users will receive the **default verified role**.');
+    if (commandName === '!verifylock') {
+      // Locks @everyone out of every channel EXCEPT the verify channel.
+      // New members then see only #verify until they pass verification.
+      const cfg = verification.getConfig(message.guild.id);
+      if (!cfg.verifyChannelId) {
+        await message.reply('⚠️ Set the verify channel first: `!setverify <#channel>` — that channel stays visible to everyone.');
         return;
       }
-      const roleId = args[0].replace(/[<@&>]/g, '');
-      const role = message.guild.roles.cache.get(roleId);
-      if (!role) {
-        await message.reply('Usage: `!verifyrole <@role|roleID>` (or `!verifyrole` to reset to default).');
-        return;
+      const status = await message.reply('🔒 Locking all channels for @everyone except the verify channel...');
+      const result = await verification.lockEveryone(message.guild, cfg.verifyChannelId);
+      let text = `✅ Done — **${result.locked}** channel(s) locked for @everyone. New members now see only <#${cfg.verifyChannelId}> until they verify.`;
+      if (result.failed > 0) {
+        text += `\n⚠️ ${result.failed} could not be locked (missing permissions).`;
       }
-      verification.setVerifiedRole(message.guild.id, roleId);
-      await message.reply(`✅ Verified users will now receive the **${role.name}** role. Make sure my bot role is ABOVE it in the role list.`);
+      await status.edit(text);
       return;
     }
 
@@ -402,7 +401,7 @@ client.on('messageCreate', async (message) => {
     }
 
     if (commandName === '!help') {
-      await message.reply({ embeds: [new EmbedBuilder().setColor(0xe11d48).setTitle('D4C Command Center').setDescription('**Owner:** `!addowner <ID>` | `!removeowner <ID>` | `!owners` | `!sendall <message>`\n\n**Voice:** `!join` / `!connect` | `!leave` / `!disconnect`\n\n**Music:** `!ann <content>` | `!play <song/URL>` | `!search <song>` | `!queue` | `!now` | `!pause` | `!resume` | `!skip` | `!stop` | `!loop on/off` | `!volume 0-200` | `!autoplay <mood>` (tamil, sad, happy, lofi, party, romantic, gym, kpop... or any custom word)\n\n**Voice Control:** `!deafen [@user]` | `!undeafen [@user]` | `!vmute [@user]` | `!vunmute [@user]` | `!dc [@user]` | `!move <target> <channel>` | `!moveall <channelID>` | `!vclist` | `!vchold <@user> [channelID]` | `!vcrelease <@user>` | `!vcholds`\n\n**Audio FX:** `!sfx <sound>` | `!sounds` | `!tts <text>` | `!tts-hi <text>` | `!vcleave`\n\n**Moderation:** `!ban <@user>` | `!kick <@user>` | `!timeout <@user> <duration>` | `!purge <amount>` | `!warn <@user>`\n\n**Giveaways:** `!gstart <duration> <winners> <prize>` | `!greroll <msgID>` | `!gend <msgID>`\n\n**Utility:** `!rr-add <msgID> <emoji> <roleID>` | `!rr-list` | `!setwelcome <#ch>` | `!welcomemsg <text>` | `!setleave <#ch>` | `!setlog <#ch>` | `!ticket-panel` | `!close` | `!cmd-add <name> <response>` | `!cmd-list`\n\n**Verification:** `!setverify <#ch>` | `!verifyrole [@role]` | `!verify-panel` (users click ✅ Verify + pass a human check — they get the verified role)')], components: musicControls() });
+      await message.reply({ embeds: [new EmbedBuilder().setColor(0xe11d48).setTitle('D4C Command Center').setDescription('**Owner:** `!addowner <ID>` | `!removeowner <ID>` | `!owners` | `!sendall <message>`\n\n**Voice:** `!join` / `!connect` | `!leave` / `!disconnect`\n\n**Music:** `!ann <content>` | `!play <song/URL>` | `!search <song>` | `!queue` | `!now` | `!pause` | `!resume` | `!skip` | `!stop` | `!loop on/off` | `!volume 0-200` | `!autoplay <mood>` (tamil, sad, happy, lofi, party, romantic, gym, kpop... or any custom word)\n\n**Voice Control:** `!deafen [@user]` | `!undeafen [@user]` | `!vmute [@user]` | `!vunmute [@user]` | `!dc [@user]` | `!move <target> <channel>` | `!moveall <channelID>` | `!vclist` | `!vchold <@user> [channelID]` | `!vcrelease <@user>` | `!vcholds`\n\n**Audio FX:** `!sfx <sound>` | `!sounds` | `!tts <text>` | `!tts-hi <text>` | `!vcleave`\n\n**Moderation:** `!ban <@user>` | `!kick <@user>` | `!timeout <@user> <duration>` | `!purge <amount>` | `!warn <@user>`\n\n**Giveaways:** `!gstart <duration> <winners> <prize>` | `!greroll <msgID>` | `!gend <msgID>`\n\n**Utility:** `!rr-add <msgID> <emoji> <roleID>` | `!rr-list` | `!setwelcome <#ch>` | `!welcomemsg <text>` | `!setleave <#ch>` | `!setlog <#ch>` | `!ticket-panel` | `!close` | `!cmd-add <name> <response>` | `!cmd-list`\n\n**Verification:** `!setverify <#ch>` | `!verifylock` | `!verify-panel` (no role assigned — @everyone is locked out, clicking ✅ Verify + passing the check makes them a member)')], components: musicControls() });
     }
 
     // ========================================================================

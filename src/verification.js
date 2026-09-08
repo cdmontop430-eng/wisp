@@ -8,10 +8,12 @@
 //   3. New users click the "Verify" button → they get a mini CAPTCHA (math
 //      question select menu) proving they are a real human, not a bot/alt.
 //   4. Accounts younger than 3 days are rejected as likely bot alts.
-//   5. On success the user is granted the verified role (default:
-//      1543584134381838416, configurable with !verifyrole <@role>). Channel
-//      access is controlled by that role's permissions — no per-user
-//      overwrites are touched by default.
+//   5. NO ROLE IS EVER ASSIGNED. Instead:
+//      - Owner runs !verifylock → the bot denies View Channel for @everyone
+//        on every channel except the verify channel (newcomers see nothing).
+//      - When a user passes the check, the bot gives THAT USER permission
+//        overwrites (View Channel, Send Messages, Read History) on all
+//        channels — that is what makes them a "member".
 //
 // Settings persist to data/verification.json (same pattern as welcomeSystem).
 // ============================================================================
@@ -21,10 +23,6 @@ const path = require('node:path');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ButtonStyle } = require('discord.js');
 
 const DATA_FILE = path.resolve('data', 'verification.json');
-
-// The role granted to users who pass verification (can be overridden per
-// guild with !verifyrole <@role>).
-const DEFAULT_VERIFIED_ROLE_ID = '1543584134381838416';
 
 
 // How long a user has to answer the CAPTCHA after clicking Verify (ms).
@@ -55,7 +53,6 @@ function getConfig(guildId) {
     config[guildId] = {
       verifyChannelId: null,
       panelTitle: '🛡️ Server Verification',
-      verifiedRoleId: DEFAULT_VERIFIED_ROLE_ID, // role granted on success
       verifiedUsers: {},      // userId -> timestamp of verification
     };
   }
@@ -68,13 +65,6 @@ function setVerifyChannel(guildId, channelId) {
   save();
 }
 
-// Owner can override which role is granted after verification.
-function setVerifiedRole(guildId, roleId) {
-  const c = getConfig(guildId);
-  c.verifiedRoleId = roleId || DEFAULT_VERIFIED_ROLE_ID;
-  save();
-}
-
 function setPanelTitle(guildId, title) {
   const c = getConfig(guildId);
   c.panelTitle = title || c.panelTitle;
@@ -82,21 +72,56 @@ function setPanelTitle(guildId, title) {
 }
 
 // ---------------------------------------------------------------------------
-// Core: grant the verified role to the user who passed the human check
+// Lockdown: hide EVERY channel from @everyone except the verify channel.
+// Run once with !verifylock after setting the verify channel. New members
+// will only be able to see #verify until they pass verification.
+// ---------------------------------------------------------------------------
+async function lockEveryone(guild, verifyChannelId) {
+  let locked = 0;
+  let failed = 0;
+  const failures = [];
+
+  for (const [, channel] of guild.channels.cache) {
+    if (channel.id === verifyChannelId) continue; // keep #verify visible
+    try {
+      await channel.permissionOverwrites.edit(guild.roles.everyone, {
+        ViewChannel: false,
+        SendMessages: false,
+      }, { reason: 'D4C verification lockdown' });
+      locked++;
+    } catch (err) {
+      failed++;
+      failures.push(`#${channel.name}: ${err.message}`);
+    }
+  }
+  return { locked, failed, failures };
+}
+
+// ---------------------------------------------------------------------------
+// Core: grant per-user access (permission overwrites) — NO ROLE assigned.
+// This is what turns a verified newcomer into a "member".
 // ---------------------------------------------------------------------------
 async function unlockUser(guild, userId) {
-  const c = getConfig(guild.id);
-  const roleId = c.verifiedRoleId || DEFAULT_VERIFIED_ROLE_ID;
+  const perms = {
+    ViewChannel: true,
+    SendMessages: true,
+    ReadMessageHistory: true,
+  };
 
-  const member = await guild.members.fetch(userId);
-  const role = guild.roles.cache.get(roleId);
-  if (!role) {
-    throw new Error(`Verified role (${roleId}) not found in this server. Check !verifyrole.`);
+  let unlocked = 0;
+  let failed = 0;
+  for (const [, channel] of guild.channels.cache) {
+    try {
+      await channel.permissionOverwrites.edit(userId, perms, { reason: 'D4C verification passed' });
+      unlocked++;
+    } catch (err) {
+      console.error(`[verify] Could not unlock #${channel.name} for user: ${err.message}`);
+      failed++;
+    }
   }
-
-  await member.roles.add(role, 'D4C verification passed');
-  return { roleName: role.name, roleId };
+  return { unlocked, failed };
 }
+
 
 
 // ---------------------------------------------------------------------------
@@ -129,7 +154,7 @@ async function createPanel(message) {
   );
 
   await message.channel.send({ embeds: [embed], components: [buttonRow] });
-  return `✅ Verification panel posted in <#${message.channel.id}>. Verified users will receive the verified role — no manual access setup needed.`;
+  return `✅ Verification panel posted in <#${message.channel.id}>. New members see only this channel until they click ✅ Verify and pass the check — no role is assigned.`;
 }
 
 
@@ -166,9 +191,8 @@ async function handleVerifyStart(interaction) {
     return;
   }
 
-  // --- Already verified? (role OR tracked in the data file) ---
-  const alreadyRole = c.verifiedRoleId && interaction.member.roles.cache.has(c.verifiedRoleId);
-  if (alreadyRole || c.verifiedUsers[interaction.user.id]) {
+  // --- Already verified? (tracked per-user in the data file — no roles) ---
+  if (c.verifiedUsers[interaction.user.id]) {
     await interaction.reply({ content: '✅ You are already verified and have full server access!', flags: 64 });
     return;
   }
@@ -224,26 +248,19 @@ async function handleCaptcha(interaction) {
     return;
   }
 
-  // Correct — grant the verified role (channel access comes from the role)
+  // Correct — grant per-user access directly (NO ROLE assigned)
   const c = getConfig(interaction.guildId);
   pending.delete(key);
-  let result;
-  try {
-    result = await unlockUser(interaction.guild, interaction.user.id);
-  } catch (err) {
-    await interaction.update({
-      content: `⚠️ Verification passed but I could not give you the role: **${err.message}**\nAsk an admin to check my role position and permissions.`,
-      components: [],
-    });
-    return;
-  }
+  const result = await unlockUser(interaction.guild, interaction.user.id);
 
   // Remember this user as verified so re-clicks are friendly
   c.verifiedUsers[interaction.user.id] = Date.now();
   save();
 
+  const extra = result.failed > 0 ? `\n⚠️ ${result.failed} channel(s) could not be unlocked — ask an admin to check my permissions.` : '';
+
   await interaction.update({
-    content: `✅ **Verified!** Welcome to the server — you received the **${result.roleName}** role and now have full access. 🎉`,
+    content: `✅ **Verified!** Welcome — you are now a member. All channels are unlocked for you. 🎉${extra}`,
     components: [],
   });
 }
@@ -251,8 +268,8 @@ async function handleCaptcha(interaction) {
 module.exports = {
   getConfig,
   setVerifyChannel,
-  setVerifiedRole,
   setPanelTitle,
+  lockEveryone,
   createPanel,
   handleVerifyStart,
   handleCaptcha,
