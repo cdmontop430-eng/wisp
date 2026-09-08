@@ -474,6 +474,16 @@ async function connect(message) {
     selfDeaf: true,
     selfMute: false
   });
+  // Log voice connection state changes and errors (same handlers as addTrack).
+  queue.connection.on('stateChange', (oldState, newState) => {
+    console.log(`[voice:${message.guild.id}] ${oldState.status} -> ${newState.status}`);
+  });
+  queue.connection.on('debug', (debugMessage) => {
+    console.log(`[voice:${message.guild.id}] ${debugMessage}`);
+  });
+  queue.connection.on('error', (error) => {
+    if (error.code !== 'ABORT_ERR') console.error(`[voice:${message.guild.id}] connection error: ${error.message}`);
+  });
   try {
     await entersState(queue.connection, VoiceConnectionStatus.Ready, 30_000);
     return `Connected to **${voiceChannel.name}**. Now use \`!play <YouTube URL>\`.`;

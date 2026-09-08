@@ -1,26 +1,28 @@
 require('dotenv').config();
 
 const fs = require('node:fs');
-const http = require('node:http');
 const path = require('node:path');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, GatewayIntentBits, MessageFlags, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
 const { handleAnnouncement } = require('./commands/ann');
+const { handlePlay, handleSkip, handleStop, handleQueue, handlePlayAutocomplete } = require('./commands/music');
+const { createDashboard } = require('./dashboard');
 const music = require('./musicPlayer');
 const recorder = require('./recorder');
 const ownerAccess = require('./ownerAccess');
 const broadcast = require('./broadcast');
 
-const webServer = http.createServer((request, response) => {
-  if (request.url === '/health') {
-    response.writeHead(200, { 'Content-Type': 'application/json' });
-    response.end(JSON.stringify({ status: 'ok', discord: client?.isReady?.() ? 'ready' : 'connecting' }));
-    return;
+// ---------------------------------------------------------------------------
+// Web server — Express dashboard (Part 1) + health probe.
+// The dashboard serves the embed-builder frontend and exposes the
+// send-embed API. It is protected by the DASHBOARD_KEY env var.
+// ---------------------------------------------------------------------------
+const dashboard = createDashboard(client);
+const port = Number(process.env.PORT) || 10000;
+dashboard.listen(port, '0.0.0.0', () => {
+  console.log(`Dashboard + health server listening on port ${port}`);
+  if (!process.env.DASHBOARD_KEY) {
+    console.warn('[dashboard] DASHBOARD_KEY is not set — the dashboard API is disabled.');
   }
-  response.writeHead(200, { 'Content-Type': 'text/plain' });
-  response.end('D4C Discord bot is running.');
-});
-webServer.listen(Number(process.env.PORT) || 10000, '0.0.0.0', () => {
-  console.log(`Health server listening on port ${webServer.address().port}`);
 });
 
 const pidFile = path.resolve('data', 'bot.pid');
@@ -327,46 +329,33 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-  // Live autocomplete for /play command as user types every letter
+  // Live autocomplete for /play command as user types every letter.
   if (interaction.isAutocomplete() && interaction.commandName === 'play') {
-    const focusedValue = interaction.options.getFocused();
-    if (!focusedValue || focusedValue.trim().length === 0) {
-      await interaction.respond([]);
-      return;
-    }
-    try {
-      const results = await music.search(focusedValue);
-      const choices = (results || []).slice(0, 10).map((track) => ({
-        name: `${track.title.slice(0, 80)} (${track.duration || 'Video'})`,
-        value: track.url
-      }));
-      await interaction.respond(choices);
-    } catch {
-      await interaction.respond([]);
-    }
+    await handlePlayAutocomplete(interaction);
     return;
   }
 
-  // Slash command /play execution
-  if (interaction.isChatInputCommand() && interaction.commandName === 'play') {
-    if (!ownerAccess.isOwner(interaction.user.id)) {
-      await interaction.reply({ content: 'This bot is owner-only.', flags: MessageFlags.Ephemeral });
-      return;
+  // ----- Slash commands -----
+  if (interaction.isChatInputCommand()) {
+    switch (interaction.commandName) {
+      case 'play':
+        await handlePlay(interaction);
+        return;
+      case 'skip':
+        await handleSkip(interaction);
+        return;
+      case 'stop':
+        await handleStop(interaction);
+        return;
+      case 'queue':
+        await handleQueue(interaction);
+        return;
+      default:
+        break;
     }
-    const query = interaction.options.getString('query');
-    await interaction.deferReply();
-    const resultMsg = await music.addTrack(interaction, query);
-    if (typeof resultMsg === 'string' && resultMsg.startsWith('Join a voice channel')) {
-      await interaction.followUp({ content: resultMsg, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    await interaction.editReply({
-      embeds: [musicEmbed(interaction.guildId)],
-      components: musicControls()
-    });
-    return;
   }
 
+  // ----- Button / select-menu interactions (music panel) -----
   if (!interaction.customId?.startsWith('d4c_')) return;
   if (!ownerAccess.isOwner(interaction.user.id)) {
     await interaction.reply({ content: 'This bot is owner-only.', flags: MessageFlags.Ephemeral });
