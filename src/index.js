@@ -21,20 +21,6 @@ const moderation = require('./moderation');
 const customCommands = require('./customCommands');
 const { success, error, info, warning } = require('./embedHelper');
 
-// ---------------------------------------------------------------------------
-// Web server — Express dashboard (Part 1) + health probe.
-// The dashboard serves the embed-builder frontend and exposes the
-// send-embed API. It is protected by the DASHBOARD_KEY env var.
-// ---------------------------------------------------------------------------
-const dashboard = createDashboard(client);
-const port = Number(process.env.PORT) || 10000;
-dashboard.listen(port, '0.0.0.0', () => {
-  console.log(`Dashboard + health server listening on port ${port}`);
-  if (!process.env.DASHBOARD_KEY) {
-    console.warn('[dashboard] DASHBOARD_KEY is not set — the dashboard API is disabled.');
-  }
-});
-
 const pidFile = path.resolve('data', 'bot.pid');
 fs.mkdirSync(path.dirname(pidFile), { recursive: true });
 if (fs.existsSync(pidFile)) {
@@ -107,6 +93,20 @@ const client = new Client({
     GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.GuildModeration,
   ]
+});
+
+// ---------------------------------------------------------------------------
+// Web server — Express dashboard (Part 1) + health probe.
+// The dashboard serves the embed-builder frontend and exposes the
+// send-embed API. It is protected by the DASHBOARD_KEY env var.
+// ---------------------------------------------------------------------------
+const dashboard = createDashboard(client);
+const port = Number(process.env.PORT) || 10000;
+dashboard.listen(port, '0.0.0.0', () => {
+  console.log(`Dashboard + health server listening on port ${port}`);
+  if (!process.env.DASHBOARD_KEY) {
+    console.warn('[dashboard] DASHBOARD_KEY is not set — the dashboard API is disabled.');
+  }
 });
 
 client.once('clientReady', async (readyClient) => {
