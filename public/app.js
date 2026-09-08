@@ -29,9 +29,11 @@ const templates = {
     title: '📢 Announcement',
     description: 'Important news for all members!',
     fields: [
-      { name: '📋 Details', value: 'What is being announced\nWhy it matters\nWho is affected' },
-      { name: '⏰ Timeline', value: 'When this takes effect\nDuration (if applicable)' },
-      { name: '❓ Questions?', value: 'Reach out to staff\nCheck #faq for details' }
+      { name: '📋 What is Happening', value: 'What is being announced\nWhy it matters\nWho is affected' },
+      { name: '⏰ Timeline', value: 'When this takes effect\nDuration (if applicable)\nKey dates to remember' },
+      { name: '🎯 Action Required', value: 'What members need to do\nDeadlines to meet\nLinks to follow' },
+      { name: '❓ FAQ', value: 'Common question 1\nCommon question 2\nCommon question 3' },
+      { name: '📞 Contact', value: 'Reach out to staff\nDM a moderator\nCheck #help channel' }
     ]
   },
   event: {
@@ -40,7 +42,10 @@ const templates = {
     fields: [
       { name: '📅 Event Details', value: 'Event name and type\nDate and time (with timezone)\nLocation / Voice channel' },
       { name: '🎮 Activities', value: 'What we will do\nSpecial guests or hosts\nPrizes or rewards' },
-      { name: '✅ How to Join', value: 'React below to get notified\nBe online 10 minutes early\nHave fun!' }
+      { name: '📝 Schedule', value: 'Start time and intro\nMain activities timeline\nEnd time and wrap-up' },
+      { name: '✅ How to Join', value: 'React below to get notified\nBe online 10 minutes early\nHave fun!' },
+      { name: '🏆 Prizes', value: '1st place reward\n2nd place reward\nParticipation rewards' },
+      { name: '❓ Questions', value: 'Ask in #event-chat\nDM the event host\nCheck pinned messages' }
     ]
   },
   giveaway: {
@@ -49,7 +54,10 @@ const templates = {
     fields: [
       { name: '🏆 Prize', value: 'What you can win\nValue of the prize\nNumber of winners' },
       { name: '📝 How to Enter', value: 'React with 🎉 to this message\nBe a member of the server\nNo requirements!' },
-      { name: '📋 Rules', value: 'Must be in server to claim\nWinner announced in 7 days\nNo alt accounts allowed' }
+      { name: '📋 Rules', value: 'Must be in server to claim\nWinner announced in 7 days\nNo alt accounts allowed' },
+      { name: '⏰ Duration', value: 'Start date and time\nEnd date and time\nWinner announcement date' },
+      { name: '🎲 Selection', value: 'Random selection method\nHow winner is notified\nClaim deadline' },
+      { name: '💎 Sponsors', value: 'Sponsor name and link\nSponsor description\nSpecial sponsor perks' }
     ]
   },
   welcome: {
@@ -58,7 +66,10 @@ const templates = {
     fields: [
       { name: '📜 Server Info', value: 'Server name and purpose\nMember count\nFounded date' },
       { name: '📏 Rules', value: 'Be respectful to everyone\nNo spam or self-promote\nFollow Discord ToS' },
-      { name: '🎭 Get Roles', value: 'Visit #roles channel\nPick your interests\nGet pinged for events' }
+      { name: '🎭 Get Roles', value: 'Visit #roles channel\nPick your interests\nGet pinged for events' },
+      { name: '💬 Channels', value: '#general for chatting\n#memes for fun stuff\n#help for questions' },
+      { name: '🎁 Perks', value: 'Member-only events\nGiveaways and prizes\nLevel roles and rewards' },
+      { name: '📞 Staff', value: 'Owner: @owner\nMods: @mod\nDM any staff for help' }
     ]
   },
   changelog: {
@@ -66,8 +77,10 @@ const templates = {
     description: 'What is new in this update!',
     fields: [
       { name: '✨ New Features', value: 'Feature 1 description\nFeature 2 description\nFeature 3 description' },
-      { name: '🔧 Improvements', value: 'Improvement 1\nImprovement 2' },
-      { name: '🐛 Bug Fixes', value: 'Fixed issue 1\nFixed issue 2\nFixed issue 3' }
+      { name: '🔧 Improvements', value: 'Improvement 1\nImprovement 2\nImprovement 3' },
+      { name: '🐛 Bug Fixes', value: 'Fixed issue 1\nFixed issue 2\nFixed issue 3' },
+      { name: '⚠️ Known Issues', value: 'Issue 1 and workaround\nIssue 2 and workaround\nIssue 3 and workaround' },
+      { name: '📅 Coming Soon', value: 'Planned feature 1\nPlanned feature 2\nPlanned feature 3' }
     ]
   },
   rules: {
@@ -77,7 +90,89 @@ const templates = {
       { name: '1️⃣ Be Respectful', value: 'No harassment or hate speech\nTreat others how you want to be treated\nRespect different opinions' },
       { name: '2️⃣ No Spam', value: 'No excessive messages\nNo unwanted DMs to members\nSelf-promo only in designated channels' },
       { name: '3️⃣ Content Guidelines', value: 'No NSFW content\nKeep conversations in correct channels\nNo piracy or illegal content' },
+      { name: '4️⃣ Voice Chat Rules', value: 'No earrape or loud noises\nNo music bots without permission\nRespect others in VC' },
+      { name: '5️⃣ Staff Authority', value: 'Staff decisions are final\nAppeals go through tickets\nRespect moderators' },
       { name: '⚠️ Punishments', value: '1st offense: Warning\n2nd offense: Mute (1 hour)\n3rd offense: Ban' }
+    ]
+  },
+  serverUpdate: {
+    title: '🚀 Server Update',
+    description: 'Big changes are coming to the server!',
+    fields: [
+      { name: '📢 What\'s New', value: 'New feature 1\nNew feature 2\nNew feature 3' },
+      { name: '🎨 New Channels', value: '#new-channel purpose\n#another-channel purpose\nUpdated channel topics' },
+      { name: '👥 New Staff', value: 'Welcome new mod: @mod\nNew helper role added\nStaff team expanded' },
+      { name: '🔧 Bot Updates', value: 'New bot commands added\nMusic bot improved\nAuto-mod enhanced' },
+      { name: '📅 Upcoming', value: 'Next event planned\nFuture improvements\nCommunity suggestions' },
+      { name: '💬 Feedback', value: 'Share your thoughts in #feedback\nSuggest new features\nReport any issues' }
+    ]
+  },
+  application: {
+    title: '📋 Staff Application',
+    description: 'Apply to join our staff team!',
+    fields: [
+      { name: '📝 Requirements', value: 'Must be active daily\nAge 13+\nNo prior bans' },
+      { name: '📋 How to Apply', value: 'Fill out the form below\nAnswer all questions honestly\nSubmit and wait for review' },
+      { name: '❓ Questions', value: 'Why do you want to be staff?\nWhat can you contribute?\nHow many hours can you dedicate?' },
+      { name: '⏰ Process', value: 'Submit application\nStaff reviews (24-48h)\nDecision via DM' },
+      { name: '🎭 Roles Available', value: 'Moderator\nHelper\nEvent Manager\nMedia Team' },
+      { name: '💎 Perks', value: 'Staff-only channel\nSpecial role and color\nEarly access to features' }
+    ]
+  },
+  partnership: {
+    title: '🤝 Partnership',
+    description: 'We are partnering with an amazing server!',
+    fields: [
+      { name: '🌐 Partner Server', value: 'Server name and link\nMember count\nServer topic' },
+      { name: '📜 About Them', value: 'What their server offers\nWhy we partnered\nShared interests' },
+      { name: '🎁 Partner Perks', value: 'Mutual shoutouts\nShared events\nCross-server access' },
+      { name: '📝 Requirements', value: 'Must join partner server\nFollow their rules\nBe active in both' },
+      { name: '🔗 Links', value: 'Partner invite: [link]\nTheir social media\nPartnership details' }
+    ]
+  },
+  warning: {
+    title: '⚠️ Warning Notice',
+    description: 'Please read this important notice!',
+    fields: [
+      { name: '⚠️ Issue', value: 'What the problem is\nWho is affected\nWhen it started' },
+      { name: '📋 Required Action', value: 'What you need to do\nDeadline to complete\nHow to verify completion' },
+      { name: '⚡ Consequences', value: 'What happens if ignored\nEscalation process\nFinal deadline' },
+      { name: '📞 Need Help?', value: 'DM a moderator\nOpen a ticket in #support\nAsk in #help channel' }
+    ]
+  },
+  faq: {
+    title: '❓ Frequently Asked Questions',
+    description: 'Answers to common questions!',
+    fields: [
+      { name: '❓ Question 1', value: 'Answer to question 1\nAdditional details\nRelated resources' },
+      { name: '❓ Question 2', value: 'Answer to question 2\nAdditional details\nRelated resources' },
+      { name: '❓ Question 3', value: 'Answer to question 3\nAdditional details\nRelated resources' },
+      { name: '❓ Question 4', value: 'Answer to question 4\nAdditional details\nRelated resources' },
+      { name: '❓ Question 5', value: 'Answer to question 5\nAdditional details\nRelated resources' },
+      { name: '📞 Still Need Help?', value: 'DM a moderator\nOpen a ticket\nCheck #help channel' }
+    ]
+  },
+  poll: {
+    title: '📊 Community Poll',
+    description: 'Vote and share your opinion!',
+    fields: [
+      { name: '📋 Question', value: 'What are we voting on?\nWhy this matters\nWho decided this' },
+      { name: '🔘 Option A', value: 'Description of option A\nPros of this choice\nCons of this choice' },
+      { name: '🔘 Option B', value: 'Description of option B\nPros of this choice\nCons of this choice' },
+      { name: '🔘 Option C', value: 'Description of option C\nPros of this choice\nCons of this choice' },
+      { name: '📝 How to Vote', value: 'React with corresponding emoji\nVote ends on [date]\nResults posted in #announcements' },
+      { name: '📊 Results', value: 'Previous poll results\nParticipation stats\nNext poll topic' }
+    ]
+  },
+  shoutout: {
+    title: '📣 Shoutout',
+    description: 'Give a shoutout to someone amazing!',
+    fields: [
+      { name: '🌟 Who', value: 'User being shoutout out\nTheir role in server\nHow long they have been here' },
+      { name: '💪 What They Did', value: 'Specific contribution\nWhy it matters\nImpact on community' },
+      { name: '🏆 Achievements', value: 'Recent accomplishments\nMilestones reached\nGoals achieved' },
+      { name: '💬 From Who', value: 'Your name and role\nWhy you are giving this shoutout\nPersonal message' },
+      { name: '🎉 Celebration', value: 'Congratulations message\nReward or prize\nCommunity reactions' }
     ]
   }
 };
