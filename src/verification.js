@@ -1,15 +1,17 @@
 // ============================================================================
 // verification.js
 // ---------------------------------------------------------------------------
-// Human-verification gate for the server:
-//   1. Owner sets a #verify channel (!setverify <#channel>) and the role that
-//      unlocks the server (!verifyrole <@role>).
+// Human-verification gate for the server — NO ROLE NEEDED:
+//   1. Owner sets a #verify channel (!setverify <#channel>) — the only channel
+//      unverified users can see.
 //   2. Owner posts the verification panel inside that channel (!verify-panel).
 //   3. New users click the "Verify" button → they get a mini CAPTCHA (math
 //      question select menu) proving they are a real human, not a bot/alt.
 //   4. Accounts younger than 3 days are rejected as likely bot alts.
-//   5. On success the verified role is granted — channel permissions should be
-//      locked to that role so unverified users see ONLY the #verify channel.
+//   5. On success the bot gives THAT USER permission overwrites (View Channel,
+//      Send Messages, Read History) directly on the unlock channels — no role
+//      is ever created or granted. By default ALL server channels unlock;
+//      owners can limit it with !verifyunlock <#ch1> <#ch2> ...
 //
 // Settings persist to data/verification.json (same pattern as welcomeSystem).
 // ============================================================================
@@ -45,7 +47,12 @@ function save() {
 
 function getConfig(guildId) {
   if (!config[guildId]) {
-    config[guildId] = { verifyChannelId: null, verifiedRoleId: null, panelTitle: '🛡️ Server Verification' };
+    config[guildId] = {
+      verifyChannelId: null,
+      panelTitle: '🛡️ Server Verification',
+      unlockChannelIds: [],   // empty = unlock ALL channels after verifying
+      verifiedUsers: {},      // userId -> timestamp of verification
+    };
   }
   return config[guildId];
 }
@@ -56,9 +63,11 @@ function setVerifyChannel(guildId, channelId) {
   save();
 }
 
-function setVerifiedRole(guildId, roleId) {
+// Owner can optionally restrict which channels unlock after verifying.
+// Called with no/null channelIds -> unlock ALL channels (default).
+function setUnlockChannels(guildId, channelIds) {
   const c = getConfig(guildId);
-  c.verifiedRoleId = roleId;
+  c.unlockChannelIds = Array.isArray(channelIds) ? channelIds : [];
   save();
 }
 
@@ -67,14 +76,42 @@ function setPanelTitle(guildId, title) {
   c.panelTitle = title || c.panelTitle;
   save();
 }
+
+// ---------------------------------------------------------------------------
+// Core: grant per-user access (permission overwrites) — replaces role granting
+// ---------------------------------------------------------------------------
+async function unlockUser(guild, userId) {
+  const c = getConfig(guild.id);
+  // Target channels: owner-selected list, or every channel in the server.
+  const targets = (c.unlockChannelIds && c.unlockChannelIds.length > 0)
+    ? c.unlockChannelIds.map((id) => guild.channels.cache.get(id)).filter(Boolean)
+    : [...guild.channels.cache.values()];
+
+  const perms = {
+    ViewChannel: true,
+    SendMessages: true,
+    ReadMessageHistory: true,
+  };
+
+  let unlocked = 0;
+  let failed = 0;
+  for (const channel of targets) {
+    try {
+      await channel.permissionOverwrites.edit(userId, perms, { reason: 'D4C verification passed' });
+      unlocked++;
+    } catch (err) {
+      console.error(`[verify] Could not unlock #${channel.name}: ${err.message}`);
+      failed++;
+    }
+  }
+  return { unlocked, failed, total: targets.length };
+}
+
 // ---------------------------------------------------------------------------
 // Panel — posted by an owner with !verify-panel inside the #verify channel
 // ---------------------------------------------------------------------------
 async function createPanel(message) {
   const c = getConfig(message.guild.id);
-  if (!c.verifiedRoleId) {
-    return '⚠️ Set the verified role first: `!verifyrole <@role>`';
-  }
 
   const embed = new EmbedBuilder()
     .setColor(0x57f287)
@@ -100,8 +137,12 @@ async function createPanel(message) {
   );
 
   await message.channel.send({ embeds: [embed], components: [buttonRow] });
-  return `✅ Verification panel posted in <#${message.channel.id}>. Lock your other channels to the <@&${c.verifiedRoleId}> role so only verified users can see them.`;
+  const scope = (c.unlockChannelIds && c.unlockChannelIds.length > 0)
+    ? `${c.unlockChannelIds.length} selected channel(s)`
+    : 'ALL server channels';
+  return `✅ Verification panel posted in <#${message.channel.id}>. Verified users will unlock **${scope}** directly — no role needed.`;
 }
+
 
 
 // ---------------------------------------------------------------------------
@@ -136,8 +177,8 @@ async function handleVerifyStart(interaction) {
     return;
   }
 
-  // --- Already verified? ---
-  if (interaction.member.roles.cache.has(c.verifiedRoleId)) {
+  // --- Already verified? (tracked per-user in the data file, no roles) ---
+  if (c.verifiedUsers[interaction.user.id]) {
     await interaction.reply({ content: '✅ You are already verified and have full server access!', flags: 64 });
     return;
   }
@@ -193,21 +234,22 @@ async function handleCaptcha(interaction) {
     return;
   }
 
-  // Correct — grant the verified role
+  // Correct — grant direct per-user access (NO ROLE, just overwrites)
   const c = getConfig(interaction.guildId);
   pending.delete(key);
-  try {
-    await interaction.member.roles.add(c.verifiedRoleId, 'D4C verification passed');
-  } catch (err) {
-    await interaction.update({
-      content: `⚠️ Verification passed but I could not give you the role: **${err.message}**\nAsk an admin to check my role position and permissions.`,
-      components: [],
-    });
-    return;
-  }
+  const result = await unlockUser(interaction.guild, interaction.user.id);
+
+  // Remember this user as verified so re-clicks are friendly
+  c.verifiedUsers[interaction.user.id] = Date.now();
+  save();
+
+  const scope = (c.unlockChannelIds && c.unlockChannelIds.length > 0)
+    ? `${result.unlocked} selected channel(s)`
+    : `${result.unlocked} server channel(s)`;
+  const extra = result.failed > 0 ? `\n⚠️ ${result.failed} channel(s) could not be unlocked — ask an admin to check my permissions.` : '';
 
   await interaction.update({
-    content: '✅ **Verified!** Welcome to the server — all channels are now unlocked for you. 🎉',
+    content: `✅ **Verified!** Welcome to the server — **${scope}** are now unlocked for you. 🎉${extra}`,
     components: [],
   });
 }
@@ -215,7 +257,7 @@ async function handleCaptcha(interaction) {
 module.exports = {
   getConfig,
   setVerifyChannel,
-  setVerifiedRole,
+  setUnlockChannels,
   setPanelTitle,
   createPanel,
   handleVerifyStart,
