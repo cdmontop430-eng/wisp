@@ -216,6 +216,7 @@ function getQueue(guildId) {
       onTrackEnd(guildId);
       playNext(guildId);
     });
+    player.on(AudioPlayerStatus.Playing, () => console.log(`[music:${guildId}] AudioPlayer is PLAYING audio.`));
     player.on('error', (error) => console.error(`[music:${guildId}] player error: ${error.message}`));
     queues.set(guildId, queue);
   }
@@ -649,6 +650,9 @@ async function connect(message) {
   });
   try {
     await entersState(queue.connection, VoiceConnectionStatus.Ready, 30_000);
+    // CRITICAL: subscribe the audio player to the connection. Without this the
+    // player "plays" into the void — voice joins, stream loads, but silence.
+    queue.connection.subscribe(queue.player);
     return `Connected to **${voiceChannel.name}**. Now use \`!play <YouTube URL>\`.`;
   } catch {
     queue.connection.destroy();
@@ -817,6 +821,9 @@ async function startMoodAutoplay(message, mood) {
   setAutoplayMood(guildId, mood);
 
   const queue = getQueue(guildId);
+  // Defensive: make sure the player is subscribed even if connect() was a no-op
+  // ("Already connected") from a path that never subscribed.
+  queue.connection?.subscribe(queue.player);
   if (!queue.playing) await playNext(guildId);
 
   if (!queue.playing) {
