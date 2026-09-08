@@ -77,6 +77,50 @@ async function handlePlay(interaction) {
       embeds: [musicPanel(music.status(interaction.guildId))],
       components: buildMusicControls(),
     });
+
+    // Show similar songs as add/remove buttons
+    try {
+      const playedTitle = music.status(interaction.guildId)?.current?.title;
+      const query2 = playedTitle ? music.cleanSongTitle(playedTitle) : null;
+      if (query2) {
+        const results = await music.search(query2);
+        const suggestions = (results || []).filter((t) => t.url && t.title !== playedTitle).slice(0, 4);
+        if (suggestions.length) {
+          const { songSuggestions } = require('../suggestionStore');
+          songSuggestions.set(interaction.guildId, suggestions);
+          const { EmbedBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
+          const embed = new EmbedBuilder()
+            .setColor(0x3b82f6)
+            .setTitle('🎯 Similar Songs You Might Like')
+            .setDescription(
+              `Because you played **${playedTitle}**\n\n` +
+              suggestions.map((t, i) => `**${i + 1}.** [${t.title}](${t.url})`).join('\n') +
+              `\n\n➕ Click a button to **add to queue** • Use the ➖ menu to **remove** queued songs`
+            );
+          const rows = [new ActionRowBuilder().addComponents(
+            suggestions.map((t, i) => new ButtonBuilder()
+              .setCustomId(`d4c_sim_${i}`)
+              .setLabel((t.title || `Song ${i + 1}`).slice(0, 60))
+              .setStyle(ButtonStyle.Primary)
+              .setEmoji('➕'))
+          )];
+          const queued = music.list(interaction.guildId);
+          if (queued.length) {
+            rows.push(new ActionRowBuilder().addComponents(
+              new StringSelectMenuBuilder()
+                .setCustomId('d4c_qremove')
+                .setPlaceholder('➖ Select a queued song to REMOVE')
+                .addOptions(queued.slice(0, 25).map((t, i) => new StringSelectMenuOptionBuilder()
+                  .setLabel(`${i + 1}. ${t.title.slice(0, 95)}`)
+                  .setValue(t.url)))
+            ));
+          }
+          await interaction.followUp({ embeds: [embed], components: rows });
+        }
+      }
+    } catch (suggErr) {
+      console.log(`[music:/play] suggestion skipped: ${suggErr.message}`);
+    }
   } catch (err) {
     console.error(`[music:/play] Error: ${err.message}`);
     await interaction.editReply({

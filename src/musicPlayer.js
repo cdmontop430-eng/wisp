@@ -801,6 +801,36 @@ function listMoods() {
   return Object.keys(MOODS);
 }
 
+// ---------------------------------------------------------------------------
+// Interactive queue management — powers the "Similar Songs" add buttons and
+// the "remove from queue" select menu in the dashboard.
+// ---------------------------------------------------------------------------
+// Add a track (already resolved title + URL) directly to the queue.
+function addUrlTrack(guildId, title, url, thumbnail = null) {
+  const queue = getQueue(guildId);
+  queue.tracks.push({ title, url, thumbnail });
+  return queue.tracks.length;
+}
+
+// Remove the first queued track matching the given URL. Returns the removed
+// track (with title) or null if not found.
+function removeTrack(guildId, url) {
+  const queue = queues.get(guildId);
+  if (!queue) return null;
+  const index = queue.tracks.findIndex((t) => t.url === url);
+  if (index === -1) return null;
+  const [removed] = queue.tracks.splice(index, 1);
+  return removed;
+}
+
+// Start playback only if the bot is connected and currently idle.
+async function playNextIfIdle(guildId) {
+  const queue = queues.get(guildId);
+  if (!queue || queue.playing) return;
+  if (!queue.connection || queue.connection.state.status !== VoiceConnectionStatus.Ready) return;
+  await playNext(guildId);
+}
+
 // One-shot `!autoplay <mood>` handler: joins the user's voice channel, sets the
 // mood, immediately queues tracks, and starts playback. Returns a status string.
 async function startMoodAutoplay(message, mood) {
@@ -832,4 +862,4 @@ async function startMoodAutoplay(message, mood) {
   return `♾️ **Mood autoplay: ${mood}** — queued ${added} track(s) and started playing. The bot will keep playing ${mood} songs forever. Use \`!autoplay off\` to stop.`;
 }
 
-module.exports = { addTrack, connect, normalizeYouTubeUrl, skip, pause, resume, setLoop, setVolume, status, search, onTrackEnd, stop, leave, list, setAutoplayMood, getAutoplayMood, queueMoodTracks, startMoodAutoplay, listMoods };
+module.exports = { addTrack, connect, normalizeYouTubeUrl, skip, pause, resume, setLoop, setVolume, status, search, onTrackEnd, stop, leave, list, setAutoplayMood, getAutoplayMood, queueMoodTracks, startMoodAutoplay, listMoods, addUrlTrack, removeTrack, playNextIfIdle, cleanSongTitle };

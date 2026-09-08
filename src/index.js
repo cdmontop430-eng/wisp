@@ -221,6 +221,8 @@ client.on('messageCreate', async (message) => {
           return;
         }
         await message.reply({ embeds: [musicEmbed(message.guild.id)], components: musicControls() });
+        // Show similar songs as add/remove buttons
+        await sendRelatedSongs(message, music.status(message.guild.id)?.current?.title);
         return;
       }
 
@@ -910,6 +912,65 @@ client.on('messageCreate', async (message) => {
   }
 });
 
+// ============================================================================
+// SIMILAR SONGS — after a song plays, show related tracks as add/remove buttons
+// ============================================================================
+const { songSuggestions } = require('./suggestionStore');
+
+// Builds the suggestion rows: ➕ add buttons for related songs and a ➖ select
+// menu listing current queue tracks for removal.
+function suggestionRows(guildId) {
+  const suggestions = songSuggestions.get(guildId) ?? [];
+  const rows = [];
+  if (suggestions.length) {
+    rows.push(new ActionRowBuilder().addComponents(
+      suggestions.map((track, index) => new ButtonBuilder()
+        .setCustomId(`d4c_sim_${index}`)
+        .setLabel((track.title || `Song ${index + 1}`).slice(0, 60))
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('➕'))
+    ));
+  }
+  const queued = music.list(guildId);
+  if (queued.length) {
+    rows.push(new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId('d4c_qremove')
+        .setPlaceholder('➖ Select a queued song to REMOVE')
+        .addOptions(queued.slice(0, 25).map((track, index) => new StringSelectMenuOptionBuilder()
+          .setLabel(`${index + 1}. ${track.title.slice(0, 95)}`)
+          .setValue(track.url)))
+    ));
+  }
+  return rows;
+}
+
+// Fire-and-forget: search similar tracks to the played song and post buttons.
+async function sendRelatedSongs(source, playedTitle) {
+  try {
+    if (!playedTitle) return;
+    const query = music.cleanSongTitle(playedTitle);
+    if (!query) return;
+    const results = await music.search(query);
+    const suggestions = (results || [])
+      .filter((t) => t.url && t.title !== playedTitle)
+      .slice(0, 4);
+    if (!suggestions.length) return;
+    songSuggestions.set(source.guild.id, suggestions);
+    const embed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle('🎯 Similar Songs You Might Like')
+      .setDescription(
+        `Because you played **${playedTitle}**\n\n` +
+        suggestions.map((t, i) => `**${i + 1}.** [${t.title}](${t.url})`).join('\n') +
+        `\n\n➕ Click a button to **add to queue** • Use the ➖ menu to **remove** queued songs`
+      );
+    await source.channel.send({ embeds: [embed], components: suggestionRows(source.guild.id) });
+  } catch (e) {
+    console.log(`[music] related-songs suggestion skipped: ${e.message}`);
+  }
+}
+
 client.on('interactionCreate', async (interaction) => {
   // Live autocomplete for /play command as user types every letter.
   if (interaction.isAutocomplete() && interaction.commandName === 'play') {
@@ -957,6 +1018,37 @@ client.on('interactionCreate', async (interaction) => {
       embeds: [musicEmbed(interaction.guildId)],
       components: musicControls()
     });
+    // Show similar songs as add/remove buttons after the pick plays
+    await sendRelatedSongs(interaction, music.status(interaction.guildId)?.current?.title);
+    return;
+  }
+
+  // ----- ➕ "Similar songs" add-to-queue buttons -----
+  if (interaction.isButton() && interaction.customId.startsWith('d4c_sim_')) {
+    const index = Number(interaction.customId.split('_')[2]);
+    const suggestions = songSuggestions.get(interaction.guildId) ?? [];
+    const track = suggestions[index];
+    if (!track) {
+      await interaction.reply({ content: '⚠️ These suggestions expired — play a song again for fresh ones.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    music.addUrlTrack(interaction.guildId, track.title, track.url);
+    await music.playNextIfIdle(interaction.guildId);
+    await interaction.reply({ content: `✅ Added **${track.title}** to the queue! Position: **${music.list(interaction.guildId).length}**`, flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  // ----- ➖ Remove-from-queue select menu -----
+  if (interaction.isStringSelectMenu() && interaction.customId === 'd4c_qremove') {
+    const removed = music.removeTrack(interaction.guildId, interaction.values[0]);
+    if (!removed) {
+      await interaction.reply({ content: '⚠️ That track is no longer in the queue.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await interaction.reply({ content: `➖ Removed **${removed.title}** from the queue. ${music.list(interaction.guildId).length} track(s) left.`, flags: MessageFlags.Ephemeral });
+    // Refresh the remove menu on the original message so it reflects the queue
+    const rows = suggestionRows(interaction.guildId);
+    await interaction.message.edit({ components: rows }).catch(() => {});
     return;
   }
 
