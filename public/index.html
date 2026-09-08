@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <!-- ================= Login overlay (shown until dashboard key is entered) ================= -->
+  <!-- Login overlay -->
   <div id="login-overlay" class="login-overlay">
     <div class="login-box">
       <h1>D4C Embed Builder</h1>
@@ -18,9 +18,8 @@
     </div>
   </div>
 
-  <!-- ================= Main app ================= -->
+  <!-- Main app -->
   <div id="app" class="app hidden">
-    <!-- Header -->
     <header class="app-header">
       <h1>D4C Embed Builder</h1>
       <div class="header-right">
@@ -30,22 +29,22 @@
     </header>
 
     <div class="layout">
-      <!-- ================= Left: Builder panel ================= -->
+      <!-- Left: Templates + Channel -->
       <main class="builder">
         <!-- Target channel -->
         <section class="card">
-          <h2>Target Channel</h2>
+          <h2>1. Paste Channel ID</h2>
           <div class="row">
-            <input type="text" id="channel-id" placeholder="Paste Discord Channel ID (e.g. 123456789012345678)" />
+            <input type="text" id="channel-id" placeholder="Discord Channel ID (e.g. 123456789012345678)" />
             <button id="validate-channel-btn" class="btn btn-secondary btn-sm">Check</button>
           </div>
         </section>
 
         <!-- Template selector -->
         <section class="card">
-          <h2>Templates</h2>
+          <h2>2. Choose a Template</h2>
           <div class="template-grid">
-            <button class="template-btn" data-template="announcement">
+            <button class="template-btn active" data-template="announcement">
               <span class="template-icon">📢</span>
               <span class="template-name">Announcement</span>
             </button>
@@ -72,23 +71,6 @@
           </div>
         </section>
 
-        <!-- Embed title -->
-        <section class="card">
-          <h2>Embed Title</h2>
-          <input type="text" id="embed-title" placeholder="Announcement title" maxlength="256" />
-          <h2>Description <span class="muted">(optional)</span></h2>
-          <textarea id="embed-description" rows="2" placeholder="Short intro text shown above the sections" maxlength="4096"></textarea>
-        </section>
-
-        <!-- Sections container -->
-        <section class="card">
-          <div class="card-header">
-            <h2>Sections</h2>
-            <button id="add-section-btn" class="btn btn-success btn-sm">+ Add Section</button>
-          </div>
-          <div id="sections-container"></div>
-        </section>
-
         <!-- Send button -->
         <div class="send-row">
           <button id="send-btn" class="btn btn-primary btn-lg">Send to Discord</button>
@@ -96,9 +78,9 @@
         </div>
       </main>
 
-      <!-- ================= Right: Live preview ================= -->
+      <!-- Right: Live Preview (editable canvas) -->
       <aside class="preview-panel">
-        <h2 class="preview-title">Live Preview</h2>
+        <h2 class="preview-title">3. Edit & Preview (click text to edit)</h2>
         <div class="discord-preview" id="preview">
           <div class="discord-message">
             <div class="discord-avatar"></div>
@@ -111,12 +93,9 @@
               <div class="discord-embed" id="preview-embed">
                 <div class="embed-color-bar"></div>
                 <div class="embed-inner">
-                  <div class="embed-title" id="preview-title">Your Title Here</div>
-                  <div class="embed-description" id="preview-description"></div>
+                  <div class="embed-title" id="preview-title" contenteditable="true">📢 Announcement</div>
+                  <div class="embed-description" id="preview-description" contenteditable="true">Important news for all members!</div>
                   <div class="embed-fields" id="preview-fields"></div>
-                  <div class="embed-image" id="preview-image-wrapper" style="display:none">
-                    <img id="preview-image" src="" alt="embed image" />
-                  </div>
                   <div class="embed-footer" id="preview-footer">D4C Dashboard</div>
                 </div>
               </div>
@@ -127,7 +106,7 @@
     </div>
   </div>
 
-  <!-- ================= Toast container ================= -->
+  <!-- Toast container -->
   <div id="toast-container"></div>
 
   <script src="/app.js"></script>

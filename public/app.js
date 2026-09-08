@@ -1,98 +1,88 @@
-/* ============================================================================
-   D4C Embed Builder — frontend logic (part 1: setup, login, channel, sections)
-   ========================================================================== */
+// ============================================================================
+// D4C Embed Builder — simple template-based editor
+// Click template → edit text directly in preview → paste channel ID → send
+// ============================================================================
 
-// ----- Dashboard key stored in memory only (never persisted to disk) -----
 let dashboardKey = '';
 
-// ----- DOM references -----
+// DOM references
 const loginOverlay = document.getElementById('login-overlay');
 const loginKeyInput = document.getElementById('login-key');
 const loginBtn = document.getElementById('login-btn');
 const loginError = document.getElementById('login-error');
 const appEl = document.getElementById('app');
 const logoutBtn = document.getElementById('logout-btn');
-
 const channelIdInput = document.getElementById('channel-id');
 const validateChannelBtn = document.getElementById('validate-channel-btn');
 const channelStatus = document.getElementById('channel-status');
-
-const embedTitleInput = document.getElementById('embed-title');
-const embedDescriptionInput = document.getElementById('embed-description');
-
-const sectionsContainer = document.getElementById('sections-container');
-const addSectionBtn = document.getElementById('add-section-btn');
-
 const sendBtn = document.getElementById('send-btn');
 const sendStatus = document.getElementById('send-status');
 
-// Preview DOM
+// Preview DOM (editable via contenteditable)
 const previewTitle = document.getElementById('preview-title');
 const previewDescription = document.getElementById('preview-description');
 const previewFields = document.getElementById('preview-fields');
-const previewImageWrapper = document.getElementById('preview-image-wrapper');
-const previewImage = document.getElementById('preview-image');
 
-// ----- Template definitions -----
+// Template definitions
 const templates = {
   announcement: {
     title: '📢 Announcement',
     description: 'Important news for all members!',
-    sections: [
-      { heading: '📋 Details', lines: ['What is being announced', 'Why it matters', 'Who is affected'] },
-      { heading: '⏰ Timeline', lines: ['When this takes effect', 'Duration (if applicable)'] },
-      { heading: '❓ Questions?', lines: ['Reach out to staff', 'Check #faq for details'] }
+    fields: [
+      { name: '📋 Details', value: 'What is being announced\nWhy it matters\nWho is affected' },
+      { name: '⏰ Timeline', value: 'When this takes effect\nDuration (if applicable)' },
+      { name: '❓ Questions?', value: 'Reach out to staff\nCheck #faq for details' }
     ]
   },
   event: {
     title: '🎉 Upcoming Event',
     description: 'Join us for an exciting event!',
-    sections: [
-      { heading: '📅 Event Details', lines: ['Event name and type', 'Date and time (with timezone)', 'Location / Voice channel'] },
-      { heading: '🎮 Activities', lines: ['What we will do', 'Special guests or hosts', 'Prizes or rewards'] },
-      { heading: '✅ How to Join', lines: ['React below to get notified', 'Be online 10 minutes early', 'Have fun!'] }
+    fields: [
+      { name: '📅 Event Details', value: 'Event name and type\nDate and time (with timezone)\nLocation / Voice channel' },
+      { name: '🎮 Activities', value: 'What we will do\nSpecial guests or hosts\nPrizes or rewards' },
+      { name: '✅ How to Join', value: 'React below to get notified\nBe online 10 minutes early\nHave fun!' }
     ]
   },
   giveaway: {
     title: '🎁 Giveaway!',
     description: 'Win amazing prizes by entering below!',
-    sections: [
-      { heading: '🏆 Prize', lines: ['What you can win', 'Value of the prize', 'Number of winners'] },
-      { heading: '📝 How to Enter', lines: ['React with 🎉 to this message', 'Be a member of the server', 'No requirements!'] },
-      { heading: '📋 Rules', lines: ['Must be in server to claim', 'Winner announced in 7 days', 'No alt accounts allowed'] }
+    fields: [
+      { name: '🏆 Prize', value: 'What you can win\nValue of the prize\nNumber of winners' },
+      { name: '📝 How to Enter', value: 'React with 🎉 to this message\nBe a member of the server\nNo requirements!' },
+      { name: '📋 Rules', value: 'Must be in server to claim\nWinner announced in 7 days\nNo alt accounts allowed' }
     ]
   },
   welcome: {
     title: '👋 Welcome to the Server!',
     description: 'We are glad to have you here!',
-    sections: [
-      { heading: '📜 Server Info', lines: ['Server name and purpose', 'Member count', 'Founded date'] },
-      { heading: '📏 Rules', lines: ['Be respectful to everyone', 'No spam or self-promote', 'Follow Discord ToS'] },
-      { heading: '🎭 Get Roles', lines: ['Visit #roles channel', 'Pick your interests', 'Get pinged for events'] }
+    fields: [
+      { name: '📜 Server Info', value: 'Server name and purpose\nMember count\nFounded date' },
+      { name: '📏 Rules', value: 'Be respectful to everyone\nNo spam or self-promote\nFollow Discord ToS' },
+      { name: '🎭 Get Roles', value: 'Visit #roles channel\nPick your interests\nGet pinged for events' }
     ]
   },
   changelog: {
     title: '📝 Changelog',
     description: 'What is new in this update!',
-    sections: [
-      { heading: '✨ New Features', lines: ['Feature 1 description', 'Feature 2 description', 'Feature 3 description'] },
-      { heading: '🔧 Improvements', lines: ['Improvement 1', 'Improvement 2'] },
-      { heading: '🐛 Bug Fixes', lines: ['Fixed issue 1', 'Fixed issue 2', 'Fixed issue 3'] }
+    fields: [
+      { name: '✨ New Features', value: 'Feature 1 description\nFeature 2 description\nFeature 3 description' },
+      { name: '🔧 Improvements', value: 'Improvement 1\nImprovement 2' },
+      { name: '🐛 Bug Fixes', value: 'Fixed issue 1\nFixed issue 2\nFixed issue 3' }
     ]
   },
   rules: {
     title: '📜 Server Rules',
     description: 'Please follow these rules at all times!',
-    sections: [
-      { heading: '1️⃣ Be Respectful', lines: ['No harassment or hate speech', 'Treat others how you want to be treated', 'Respect different opinions'] },
-      { heading: '2️⃣ No Spam', lines: ['No excessive messages', 'No unwanted DMs to members', 'Self-promo only in designated channels'] },
-      { heading: '3️⃣ Content Guidelines', lines: ['No NSFW content', 'Keep conversations in correct channels', 'No piracy or illegal content'] },
-      { heading: '⚠️ Punishments', lines: ['1st offense: Warning', '2nd offense: Mute (1 hour)', '3rd offense: Ban'] }
+    fields: [
+      { name: '1️⃣ Be Respectful', value: 'No harassment or hate speech\nTreat others how you want to be treated\nRespect different opinions' },
+      { name: '2️⃣ No Spam', value: 'No excessive messages\nNo unwanted DMs to members\nSelf-promo only in designated channels' },
+      { name: '3️⃣ Content Guidelines', value: 'No NSFW content\nKeep conversations in correct channels\nNo piracy or illegal content' },
+      { name: '⚠️ Punishments', value: '1st offense: Warning\n2nd offense: Mute (1 hour)\n3rd offense: Ban' }
     ]
   }
 };
 
-// ----- Toast helper -----
+// Toast helper
 function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
@@ -106,7 +96,7 @@ function showToast(message, type = 'info') {
   }, 4000);
 }
 
-// ----- API helper — always sends the dashboard key header -----
+// API helper
 async function apiFetch(path, options = {}) {
   const response = await fetch(path, {
     ...options,
@@ -120,7 +110,7 @@ async function apiFetch(path, options = {}) {
   return { ok: response.ok, status: response.status, data };
 }
 
-// ----- Login flow -----
+// Login flow
 loginBtn.addEventListener('click', () => {
   const key = loginKeyInput.value.trim();
   if (!key) {
@@ -132,7 +122,6 @@ loginBtn.addEventListener('click', () => {
   loginOverlay.classList.add('hidden');
   appEl.classList.remove('hidden');
   loadTemplate('announcement');
-  document.querySelector('[data-template="announcement"]').classList.add('active');
 });
 
 loginKeyInput.addEventListener('keydown', (e) => {
@@ -146,52 +135,38 @@ logoutBtn.addEventListener('click', () => {
   loginKeyInput.value = '';
 });
 
-// ----- Template selector -----
+// Template selector
 document.querySelectorAll('.template-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
-    const templateName = btn.dataset.template;
-    loadTemplate(templateName);
-    // Highlight active template
     document.querySelectorAll('.template-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
+    loadTemplate(btn.dataset.template);
   });
 });
 
-/**
- * Load a template into the builder.
- * Clears existing sections and populates with the template's structure.
- */
-function loadTemplate(templateName) {
-  const template = templates[templateName];
+// Load template into editable preview
+function loadTemplate(name) {
+  const template = templates[name];
   if (!template) return;
 
-  // Set title and description
-  embedTitleInput.value = template.title;
-  embedDescriptionInput.value = template.description;
+  previewTitle.textContent = template.title;
+  previewDescription.textContent = template.description;
 
-  // Clear existing sections
-  sectionsContainer.innerHTML = '';
-  sectionCounter = 0;
-
-  // Add template sections
-  template.sections.forEach((sectionData) => {
-    addSection();
-    const lastSection = sectionsContainer.lastElementChild;
-    lastSection.querySelector('.section-heading').value = sectionData.heading;
-    const linesContainer = lastSection.querySelector('.section-lines');
-    linesContainer.innerHTML = '';
-    sectionData.lines.forEach((lineText) => {
-      addLine(lastSection);
-      const lastLine = linesContainer.lastElementChild;
-      lastLine.querySelector('.line-input').value = lineText;
-    });
+  previewFields.innerHTML = '';
+  template.fields.forEach((field) => {
+    const fieldEl = document.createElement('div');
+    fieldEl.className = 'embed-field';
+    fieldEl.innerHTML = `
+      <div class="embed-field-name" contenteditable="true">${field.name}</div>
+      <div class="embed-field-value" contenteditable="true">${field.value}</div>
+    `;
+    previewFields.appendChild(fieldEl);
   });
 
-  updatePreview();
-  showToast(`Loaded "${templateName}" template`, 'info');
+  showToast(`Loaded "${name}" template — click any text to edit`, 'info');
 }
 
-// ----- Channel validation -----
+// Channel validation
 validateChannelBtn.addEventListener('click', async () => {
   const channelId = channelIdInput.value.trim();
   if (!/^\d{17,20}$/.test(channelId)) {
@@ -216,145 +191,7 @@ validateChannelBtn.addEventListener('click', async () => {
   }
 });
 
-// ----- Section management -----
-let sectionCounter = 0;
-
-function addSection() {
-  sectionCounter++;
-  const index = sectionCounter;
-  const sectionEl = document.createElement('div');
-  sectionEl.className = 'section-block';
-  sectionEl.dataset.index = index;
-  sectionEl.innerHTML = `
-    <div class="section-block-header">
-      <span class="section-index">Section ${sectionsContainer.children.length + 1}</span>
-      <button class="btn btn-danger btn-sm remove-section-btn" title="Remove section">✕</button>
-    </div>
-    <div class="section-field">
-      <label>Heading</label>
-      <input type="text" class="section-heading" placeholder="Section heading" maxlength="256" />
-    </div>
-    <div class="section-field">
-      <label>Content Lines</label>
-      <div class="section-lines"></div>
-      <button class="add-line-btn">+ Add line</button>
-    </div>
-    <div class="section-field">
-      <label>Image URL <span class="muted">(optional)</span></label>
-      <input type="text" class="section-image" placeholder="https://example.com/image.png" />
-    </div>
-    <div class="section-field">
-      <label>Video / GIF URL <span class="muted">(optional)</span></label>
-      <input type="text" class="section-video" placeholder="https://example.com/video.mp4" />
-    </div>
-  `;
-  sectionsContainer.appendChild(sectionEl);
-
-  const removeBtn = sectionEl.querySelector('.remove-section-btn');
-  removeBtn.addEventListener('click', () => {
-    sectionEl.remove();
-    renumberSections();
-    updatePreview();
-  });
-
-  const addLineBtn = sectionEl.querySelector('.add-line-btn');
-  addLineBtn.addEventListener('click', () => addLine(sectionEl));
-
-  sectionEl.querySelectorAll('input').forEach((input) => {
-    input.addEventListener('input', updatePreview);
-  });
-
-  addLine(sectionEl);
-  renumberSections();
-  updatePreview();
-}
-
-function addLine(sectionEl) {
-  const linesContainer = sectionEl.querySelector('.section-lines');
-  const lineRow = document.createElement('div');
-  lineRow.className = 'line-row';
-  lineRow.innerHTML = `
-    <input type="text" class="line-input" placeholder="Line of text" maxlength="1024" />
-    <button class="btn btn-danger btn-sm remove-line-btn" title="Remove line">✕</button>
-  `;
-  linesContainer.appendChild(lineRow);
-
-  const removeBtn = lineRow.querySelector('.remove-line-btn');
-  removeBtn.addEventListener('click', () => {
-    lineRow.remove();
-    updatePreview();
-  });
-
-  lineRow.querySelector('.line-input').addEventListener('input', updatePreview);
-}
-
-function renumberSections() {
-  const blocks = sectionsContainer.querySelectorAll('.section-block');
-  blocks.forEach((block, i) => {
-    block.querySelector('.section-index').textContent = `Section ${i + 1}`;
-  });
-}
-
-addSectionBtn.addEventListener('click', addSection);
-
-// ----- Live preview -----
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-function updatePreview() {
-  const title = embedTitleInput.value.trim() || 'Your Title Here';
-  previewTitle.textContent = title;
-
-  const desc = embedDescriptionInput.value.trim();
-  previewDescription.textContent = desc || '';
-  previewDescription.style.display = desc ? 'block' : 'none';
-
-  previewFields.innerHTML = '';
-  const blocks = sectionsContainer.querySelectorAll('.section-block');
-  blocks.forEach((block) => {
-    const heading = block.querySelector('.section-heading').value.trim() || 'Section';
-    const lineInputs = block.querySelectorAll('.line-input');
-    const lines = [];
-    lineInputs.forEach((input) => {
-      const val = input.value.trim();
-      if (val) lines.push(val);
-    });
-    const videoUrl = block.querySelector('.section-video').value.trim();
-
-    const parts = [];
-    if (videoUrl) parts.push(`▶ [Video](${videoUrl})`);
-    if (lines.length > 0) parts.push(lines.join('\n'));
-    if (parts.length === 0) return;
-
-    const fieldEl = document.createElement('div');
-    fieldEl.className = 'embed-field';
-    fieldEl.innerHTML = `
-      <div class="embed-field-name">${escapeHtml(heading)}</div>
-      <div class="embed-field-value">${escapeHtml(parts.join('\n'))}</div>
-    `;
-    previewFields.appendChild(fieldEl);
-  });
-
-  let imageUrl = '';
-  for (const block of blocks) {
-    imageUrl = block.querySelector('.section-image').value.trim();
-    if (imageUrl) break;
-  }
-  if (imageUrl) {
-    previewImage.src = imageUrl;
-    previewImageWrapper.style.display = 'block';
-  } else {
-    previewImageWrapper.style.display = 'none';
-  }
-}
-
-embedTitleInput.addEventListener('input', updatePreview);
-embedDescriptionInput.addEventListener('input', updatePreview);
-
-// ----- Send to Discord -----
+// Send to Discord
 sendBtn.addEventListener('click', async () => {
   const channelId = channelIdInput.value.trim();
   if (!/^\d{17,20}$/.test(channelId)) {
@@ -362,37 +199,32 @@ sendBtn.addEventListener('click', async () => {
     return;
   }
 
+  // Build sections from the editable preview
   const sections = [];
-  const blocks = sectionsContainer.querySelectorAll('.section-block');
-  blocks.forEach((block) => {
-    const heading = block.querySelector('.section-heading').value.trim();
-    const lineInputs = block.querySelectorAll('.line-input');
-    const lines = [];
-    lineInputs.forEach((input) => {
-      const val = input.value.trim();
-      if (val) lines.push(val);
-    });
-    const imageUrl = block.querySelector('.section-image').value.trim();
-    const videoUrl = block.querySelector('.section-video').value.trim();
-    if (!heading && lines.length === 0) return;
-    sections.push({ heading, lines, imageUrl, videoUrl });
+  const fieldElements = previewFields.querySelectorAll('.embed-field');
+  fieldElements.forEach((fieldEl) => {
+    const name = fieldEl.querySelector('.embed-field-name').textContent.trim();
+    const value = fieldEl.querySelector('.embed-field-value').textContent.trim();
+    if (name || value) {
+      sections.push({
+        heading: name,
+        lines: value.split('\n').filter((l) => l.trim()),
+      });
+    }
   });
 
   if (sections.length === 0) {
-    showToast('Add at least one section with content.', 'error');
+    showToast('Add at least one section.', 'error');
     return;
   }
 
-  const title = embedTitleInput.value.trim();
-  if (!title) {
-    showToast('Enter an embed title.', 'error');
-    return;
-  }
+  const title = previewTitle.textContent.trim();
+  const description = previewDescription.textContent.trim();
 
   const payload = {
     channelId,
     title,
-    description: embedDescriptionInput.value.trim(),
+    description,
     sections,
   };
 
