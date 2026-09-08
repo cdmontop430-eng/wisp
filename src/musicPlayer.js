@@ -212,7 +212,7 @@ async function playNext(guildId) {
     await initPlayDl();
     let stream, type;
 
-    // Layer 1: Direct YouTube extraction via yt-dlp with ios,android signature (exact track URL)
+    // Layer 1: Direct YouTube extraction via yt-dlp
     try {
       if (track.url.includes('soundcloud.com')) {
         const scStream = await play.stream(track.url);
@@ -222,7 +222,7 @@ async function playNext(guildId) {
       } else {
         await ensureYtDlp();
         const cookiePath = ensureCookiesFile();
-        // Build yt-dlp args — use cookies if available (bypasses bot detection 100%)
+        // Build yt-dlp args — combine cookies + extractor args for best results
         const ytArgs = [
           track.url,
           '--no-playlist',
@@ -231,11 +231,11 @@ async function playNext(guildId) {
           '--no-warnings',
           '--socket-timeout', '15',
         ];
+        // Always use extractor args (helps bypass bot detection on hosting services)
+        ytArgs.push('--extractor-args', 'youtube:player_client=tv_embedded,android_music,web_safari');
         if (cookiePath) {
           ytArgs.push('--cookies', cookiePath);
-          console.log(`[music:${guildId}] Using YouTube cookies for extraction.`);
-        } else {
-          ytArgs.push('--extractor-args', 'youtube:player_client=tv_embedded,android_music');
+          console.log(`[music:${guildId}] Using YouTube cookies + extractor args for extraction.`);
         }
         const output = await ytdlp.execPromise(ytArgs);
         const directUrl = (output || '').trim().split(/\s+/)[0];
@@ -250,7 +250,7 @@ async function playNext(guildId) {
         const probe = await demuxProbe(audioStream);
         stream = probe.stream;
         type = probe.type;
-        console.log(`[music:${guildId}] Layer 1 (yt-dlp ${cookiePath ? 'with cookies' : 'tv_embedded/android_music'}) succeeded!`);
+        console.log(`[music:${guildId}] Layer 1 (yt-dlp ${cookiePath ? 'with cookies + ' : ''}extractor args) succeeded!`);
       }
     } catch (layer1Err) {
       console.log(`[music:${guildId}] Layer 1 failed (${layer1Err.message}), trying Layer 2 (SoundCloud Mirror with cleaned title)...`);
@@ -315,6 +315,10 @@ async function playNext(guildId) {
     console.error(`[music:${guildId}] unable to play ${track.url}:`, errorMsg);
     queue.lastError = errorMsg;
     queue.current = null;
+    // Provide helpful guidance for YouTube bot detection errors
+    if (errorMsg.includes('Sign in to confirm') || errorMsg.includes('bot')) {
+      console.log(`[music:${guildId}] YouTube blocked this request (datacenter IP detected). Try: SoundCloud links, a VPS host, or a YouTube cookies file.`);
+    }
     await playNext(guildId);
   }
 }
