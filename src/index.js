@@ -10,6 +10,16 @@ const music = require('./musicPlayer');
 const recorder = require('./recorder');
 const ownerAccess = require('./ownerAccess');
 const broadcast = require('./broadcast');
+const voiceControl = require('./voiceControl');
+const reactionRoles = require('./reactionRoles');
+const autoMod = require('./autoMod');
+const welcomeSystem = require('./welcomeSystem');
+const giveaway = require('./giveaway');
+const serverLog = require('./serverLog');
+const ticketSystem = require('./ticketSystem');
+const moderation = require('./moderation');
+const customCommands = require('./customCommands');
+const { success, error, info, warning } = require('./embedHelper');
 
 // ---------------------------------------------------------------------------
 // Web server — Express dashboard (Part 1) + health probe.
@@ -92,7 +102,10 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildModeration,
   ]
 });
 
@@ -320,10 +333,341 @@ client.on('messageCreate', async (message) => {
     }
 
     if (commandName === '!help') {
-      await message.reply({ embeds: [new EmbedBuilder().setColor(0xe11d48).setTitle('D4C command center').setDescription('`!music` opens the live player panel.\n\nOwner: `!addowner <ID>` | `!removeowner <ID>` | `!owners` | `!sendall <message>`\n\nVoice: `!join` / `!connect` | `!leave` / `!disconnect`\n\nMusic: `!ann <content>` | `!play <song/URL>` | `!search <song>` | `!queue` | `!now` | `!pause` | `!resume` | `!skip` | `!stop` | `!loop on/off` | `!volume 0-200` | `!record` | `!stoprecord` | `!247`')], components: musicControls() });
+      await message.reply({ embeds: [new EmbedBuilder().setColor(0xe11d48).setTitle('D4C Command Center').setDescription('**Owner:** `!addowner <ID>` | `!removeowner <ID>` | `!owners` | `!sendall <message>`\n\n**Voice:** `!join` / `!connect` | `!leave` / `!disconnect`\n\n**Music:** `!ann <content>` | `!play <song/URL>` | `!search <song>` | `!queue` | `!now` | `!pause` | `!resume` | `!skip` | `!stop` | `!loop on/off` | `!volume 0-200`\n\n**Voice Control:** `!deafen [@user]` | `!undeafen [@user]` | `!vmute [@user]` | `!vunmute [@user]` | `!dc [@user]` | `!move <target> <channel>`\n\n**Moderation:** `!ban <@user>` | `!kick <@user>` | `!timeout <@user> <duration>` | `!purge <amount>` | `!warn <@user>`\n\n**Giveaways:** `!gstart <duration> <winners> <prize>` | `!greroll <msgID>` | `!gend <msgID>`\n\n**Utility:** `!rr-add <msgID> <emoji> <roleID>` | `!rr-list` | `!setwelcome <#ch>` | `!welcomemsg <text>` | `!setleave <#ch>` | `!setlog <#ch>` | `!ticket-panel` | `!close` | `!cmd-add <name> <response>` | `!cmd-list`')], components: musicControls() });
+    }
+
+    // ========================================================================
+    // VOICE CONTROLS — deafen, mute, unmute, disconnect, move
+    // ========================================================================
+    if (['!deafen', '!vc-deafen'].includes(commandName)) {
+      const targetId = args[0]?.replace(/[<@!>]/g, '') || null;
+      const result = await voiceControl.deafen(message.member, targetId);
+      await message.reply({ embeds: [result.ok ? success({ title: '🔇 Deafened', description: result.message }) : error({ title: 'Cannot Deafen', description: result.message })] });
+      return;
+    }
+
+    if (['!undeafen', '!vc-undeafen'].includes(commandName)) {
+      const targetId = args[0]?.replace(/[<@!>]/g, '') || null;
+      const result = await voiceControl.undeafen(message.member, targetId);
+      await message.reply({ embeds: [result.ok ? success({ title: '🔊 Undeafened', description: result.message }) : error({ title: 'Cannot Undeafen', description: result.message })] });
+      return;
+    }
+
+    if (['!vmute', '!vc-mute'].includes(commandName)) {
+      const targetId = args[0]?.replace(/[<@!>]/g, '') || null;
+      const result = await voiceControl.mute(message.member, targetId);
+      await message.reply({ embeds: [result.ok ? success({ title: '🔇 Muted', description: result.message }) : error({ title: 'Cannot Mute', description: result.message })] });
+      return;
+    }
+
+    if (['!vunmute', '!vc-unmute'].includes(commandName)) {
+      const targetId = args[0]?.replace(/[<@!>]/g, '') || null;
+      const result = await voiceControl.unmute(message.member, targetId);
+      await message.reply({ embeds: [result.ok ? success({ title: '🔊 Unmuted', description: result.message }) : error({ title: 'Cannot Unmute', description: result.message })] });
+      return;
+    }
+
+    if (['!dc', '!vcdisconnect', '!vc-kick'].includes(commandName)) {
+      const targetId = args[0]?.replace(/[<@!>]/g, '') || null;
+      const result = await voiceControl.disconnect(message.member, targetId);
+      await message.reply({ embeds: [result.ok ? success({ title: '👢 Disconnected', description: result.message }) : error({ title: 'Cannot Disconnect', description: result.message })] });
+      return;
+    }
+
+    if (commandName === '!move') {
+      const [targetId, channelId] = args;
+      if (!channelId) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!move <@user/voice-channel-id> <destination-channel-id>`\nOr `!move all <channel-id>` to move everyone.' })] });
+        return;
+      }
+      const cleanChannelId = channelId.replace(/[<#>]/g, '');
+      const cleanTargetId = targetId?.toLowerCase() === 'all' ? null : targetId?.replace(/[<@!>]/g, '');
+      const result = await voiceControl.move(message.member, cleanChannelId, cleanTargetId);
+      await message.reply({ embeds: [result.ok ? success({ title: '🔄 Moved', description: result.message }) : error({ title: 'Cannot Move', description: result.message })] });
+      return;
+    }
+
+    // ========================================================================
+    // REACTION ROLES & AUTO-MOD
+    // ========================================================================
+    if (commandName === '!rr-add') {
+      const [msgId, emoji, roleId] = args;
+      const result = reactionRoles.addBinding(msgId, emoji, roleId);
+      await message.reply({ embeds: [result.ok ? success({ title: 'Reaction Role Added', description: result.message }) : error({ title: 'Failed', description: result.message })] });
+      return;
+    }
+
+    if (commandName === '!rr-remove') {
+      const [msgId, emoji] = args;
+      const result = reactionRoles.removeBinding(msgId, emoji);
+      await message.reply({ embeds: [result.ok ? success({ title: 'Reaction Role Removed', description: result.message }) : error({ title: 'Failed', description: result.message })] });
+      return;
+    }
+
+    if (commandName === '!rr-list') {
+      const bindings = reactionRoles.getBindings(args[0] || '');
+      const desc = Object.entries(bindings).length
+        ? Object.entries(bindings).map(([emoji, roleId]) => `${emoji} → <@&${roleId}>`).join('\n')
+        : 'No reaction roles configured. Use `!rr-add <messageId> <emoji> <roleId>` first.';
+      await message.reply({ embeds: [info({ title: 'Reaction Roles', description: desc })] });
+      return;
+    }
+
+    if (commandName === '!banword') {
+      const word = args.join(' ');
+      const added = autoMod.addBannedWord(message.guild.id, word);
+      await message.reply({ embeds: [added ? success({ title: 'Word Banned', description: `Messages containing "${word}" will be deleted.` }) : warning({ title: 'Already Banned', description: `"${word}" is already in the filter.` })] });
+      return;
+    }
+
+    if (commandName === '!unbanword') {
+      const word = args.join(' ');
+      const removed = autoMod.removeBannedWord(message.guild.id, word);
+      await message.reply({ embeds: [removed ? success({ title: 'Word Unbanned', description: `"${word}" removed from filter.` }) : error({ title: 'Not Found', description: `"${word}" is not in the filter.` })] });
+      return;
+    }
+
+    if (commandName === '!setlog') {
+      const channelId = args[0]?.replace(/[<#>]/g, '') || null;
+      serverLog.setLogChannel(message.guild.id, channelId);
+      await message.reply({ embeds: [success({ title: 'Log Channel Set', description: channelId ? `Events will be logged to <#${channelId}>.` : 'Logging disabled.' })] });
+      return;
+    }
+
+    // ========================================================================
+    // WELCOME / LEAVE MESSAGES
+    // ========================================================================
+    if (commandName === '!setwelcome') {
+      const channelId = args[0]?.replace(/[<#>]/g, '');
+      if (!channelId) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!setwelcome <#channel>` then `!welcomemsg <message>`\nPlaceholders: {user} {username} {server} {count}`' })] });
+        return;
+      }
+      welcomeSystem.setWelcomeChannel(message.guild.id, channelId);
+      await message.reply({ embeds: [success({ title: 'Welcome Channel Set', description: `Welcome messages will be sent to <#${channelId}>.` })] });
+      return;
+    }
+
+    if (commandName === '!welcomemsg') {
+      const msg = args.join(' ');
+      welcomeSystem.setWelcomeMessage(message.guild.id, msg);
+      await message.reply({ embeds: [success({ title: 'Welcome Message Set', description: msg })] });
+      return;
+    }
+
+    if (commandName === '!setleave') {
+      const channelId = args[0]?.replace(/[<#>]/g, '');
+      if (!channelId) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!setleave <#channel>` then `!leavemsg <message>`' })] });
+        return;
+      }
+      welcomeSystem.setLeaveChannel(message.guild.id, channelId);
+      await message.reply({ embeds: [success({ title: 'Leave Channel Set', description: `Leave messages will be sent to <#${channelId}>.` })] });
+      return;
+    }
+
+    if (commandName === '!leavemsg') {
+      const msg = args.join(' ');
+      welcomeSystem.setLeaveMessage(message.guild.id, msg);
+      await message.reply({ embeds: [success({ title: 'Leave Message Set', description: msg })] });
+      return;
+    }
+
+    // ========================================================================
+    // GIVEAWAYS
+    // ========================================================================
+    if (commandName === '!gstart') {
+      const [duration, winners, ...prizeParts] = args;
+      const prize = prizeParts.join(' ');
+      if (!duration || !winners || !prize) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!gstart <duration> <winners> <prize>`\nExample: `!gstart 1d 1 Nitro Classic`\nDuration: 30s, 5m, 2h, 1d, 1w' })] });
+        return;
+      }
+      const result = await giveaway.startGiveaway(message.channel, message.author, duration, parseInt(winners), prize);
+      if (!result.ok) {
+        await message.reply({ embeds: [error({ title: 'Giveaway Error', description: result.message })] });
+      }
+      return;
+    }
+
+    if (commandName === '!greroll') {
+      const messageId = args[0];
+      const gw = giveaway.giveaways[messageId];
+      if (!gw) {
+        await message.reply({ embeds: [error({ title: 'Not Found', description: 'No giveaway found with that message ID.' })] });
+        return;
+      }
+      try {
+        const msg = await message.channel.messages.fetch(messageId);
+        const winners = await giveaway.reroll(gw, msg);
+        if (winners.length > 0) {
+          await message.reply({ embeds: [success({ title: '🎉 New Winner!', description: `New winner(s): ${winners.map((id) => `<@${id}>`).join(', ')}` })] });
+        } else {
+          await message.reply({ embeds: [warning({ title: 'No Entries', description: 'No valid entries to reroll.' })] });
+        }
+
+    // ========================================================================
+    // TICKETS
+    // ========================================================================
+    if (commandName === '!ticket-panel') {
+      const roleId = args[0]?.replace(/[<@&>]/g, '');
+      const result = await ticketSystem.createPanel(message.channel, roleId);
+      await message.reply({ embeds: [result.ok ? success({ title: 'Ticket Panel Created', description: result.message }) : error({ title: 'Failed', description: result.message })] });
+      return;
+    }
+
+    if (commandName === '!close') {
+      const result = await ticketSystem.closeTicket(message.channel, message.member);
+      if (!result.ok) {
+        await message.reply({ embeds: [error({ title: 'Not a Ticket', description: result.message })] });
+      }
+      return;
+    }
+
+    // ========================================================================
+    // MODERATION — ban, kick, timeout, purge, warn
+    // ========================================================================
+    if (commandName === '!ban') {
+      const targetId = args[0]?.replace(/[<@!>]/g, '');
+      const reason = args.slice(1).join(' ') || 'No reason provided';
+      if (!targetId) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!ban <@user> [reason]`' })] });
+        return;
+      }
+      try {
+        const target = await message.guild.members.fetch(targetId);
+        const result = await moderation.ban(message.member, target, reason);
+        await message.reply({ embeds: [result.ok ? success({ title: '🔨 Banned', description: result.message }) : error({ title: 'Cannot Ban', description: result.message })] });
+      } catch {
+        await message.reply({ embeds: [error({ title: 'Not Found', description: 'Could not find that user in this server.' })] });
+      }
+      return;
+    }
+
+    if (commandName === '!kick') {
+      const targetId = args[0]?.replace(/[<@!>]/g, '');
+      const reason = args.slice(1).join(' ') || 'No reason provided';
+      if (!targetId) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!kick <@user> [reason]`' })] });
+        return;
+      }
+      try {
+        const target = await message.guild.members.fetch(targetId);
+        const result = await moderation.kick(message.member, target, reason);
+        await message.reply({ embeds: [result.ok ? success({ title: '👢 Kicked', description: result.message }) : error({ title: 'Cannot Kick', description: result.message })] });
+      } catch {
+        await message.reply({ embeds: [error({ title: 'Not Found', description: 'Could not find that user in this server.' })] });
+      }
+      return;
+    }
+
+    if (commandName === '!timeout') {
+      const targetId = args[0]?.replace(/[<@!>]/g, '');
+      const duration = args[1];
+      const reason = args.slice(2).join(' ') || 'No reason provided';
+      if (!targetId || !duration) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!timeout <@user> <duration> [reason]`\nDuration: 30s, 10m, 1h, 1d (max 28d)' })] });
+        return;
+      }
+      try {
+        const target = await message.guild.members.fetch(targetId);
+        const result = await moderation.timeout(message.member, target, duration, reason);
+        await message.reply({ embeds: [result.ok ? success({ title: '⏱️ Timed Out', description: result.message }) : error({ title: 'Cannot Timeout', description: result.message })] });
+      } catch {
+        await message.reply({ embeds: [error({ title: 'Not Found', description: 'Could not find that user in this server.' })] });
+      }
+      return;
+    }
+
+    if (commandName === '!purge') {
+      const amount = parseInt(args[0]) || 10;
+      const result = await moderation.purge(message.channel, amount);
+      const reply = await message.reply({ embeds: [result.ok ? success({ title: '🗑️ Purged', description: result.message }) : error({ title: 'Cannot Purge', description: result.message })] });
+      setTimeout(() => reply.delete().catch(() => {}), 3000);
+      return;
+    }
+
+    if (commandName === '!warn') {
+      const targetId = args[0]?.replace(/[<@!>]/g, '');
+      if (!targetId) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!warn <@user>`' })] });
+        return;
+      }
+      try {
+        const target = await message.guild.members.fetch(targetId);
+        const count = autoMod.warnUser(message.guild.id, targetId);
+        await message.reply({ embeds: [warning({ title: '⚠️ Warned', description: `**${target.user.tag}** has been warned. (${count} total warns)` })] });
+      } catch {
+        await message.reply({ embeds: [error({ title: 'Not Found', description: 'Could not find that user.' })] });
+      }
+      return;
+    }
+      } catch {
+        await message.reply({ embeds: [error({ title: 'Error', description: 'Could not fetch giveaway message.' })] });
+      }
+      return;
+    }
+
+    if (commandName === '!gend') {
+      const messageId = args[0];
+      const gw = giveaway.giveaways[messageId];
+      if (!gw) {
+        await message.reply({ embeds: [error({ title: 'Not Found', description: 'No giveaway found with that message ID.' })] });
+        return;
+      }
+      try {
+        const msg = await message.channel.messages.fetch(messageId);
+        const winners = await giveaway.pickWinners(gw, msg);
+        gw.ended = true;
+        await giveaway.announceWinners(gw, winners, message.channel);
+      } catch {
+        await message.reply({ embeds: [error({ title: 'Error', description: 'Could not end giveaway.' })] });
+      }
+      return;
     }
   } catch (error) {
     console.error(`[${commandName}] ${error.message}`);
+
+    // ========================================================================
+    // CUSTOM COMMANDS
+    // ========================================================================
+    if (commandName === '!cmd-add') {
+      const name = args[0];
+      const response = args.slice(1).join(' ');
+      if (!name || !response) {
+        await message.reply({ embeds: [error({ title: 'Usage', description: '`!cmd-add <name> <response>`' })] });
+        return;
+      }
+      const result = customCommands.addCommand(message.guild.id, name, response);
+      await message.reply({ embeds: [result.ok ? success({ title: 'Command Created', description: result.message }) : error({ title: 'Failed', description: result.message })] });
+      return;
+    }
+
+    if (commandName === '!cmd-remove') {
+      const name = args[0];
+      const result = customCommands.removeCommand(message.guild.id, name);
+      await message.reply({ embeds: [result.ok ? success({ title: 'Command Removed', description: result.message }) : error({ title: 'Failed', description: result.message })] });
+      return;
+    }
+
+    if (commandName === '!cmd-list') {
+      const cmds = customCommands.getCommands(message.guild.id);
+      const desc = Object.keys(cmds).length
+        ? Object.keys(cmds).map((name) => `\`!${name}\``).join(', ')
+        : 'No custom commands set.';
+      await message.reply({ embeds: [info({ title: 'Custom Commands', description: desc })] });
+      return;
+    }
+
+    // ========================================================================
+    // Custom command execution (check if message matches a custom command)
+    // ========================================================================
+    const customCmd = customCommands.getCommand(message.guild.id, commandName.replace('!', ''));
+    if (customCmd) {
+      const response = customCommands.executeCommand(message.guild.id, commandName.replace('!', ''));
+      await message.reply(response);
+      return;
+    }
     await message.reply(`Could not complete that command: ${error.message}`).catch(() => {});
   }
 });
@@ -393,6 +737,91 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
+// ============================================================================
+// EVENT HANDLERS — Welcome, Logging, Reaction Roles, Auto-Mod
+// ============================================================================
+
+// Member joined — send welcome message
+client.on('guildMemberAdd', (member) => {
+  welcomeSystem.sendWelcome(member);
+});
+
+// Member left — send leave message
+client.on('guildMemberRemove', (member) => {
+  welcomeSystem.sendLeave(member);
+});
+
+// Message deleted — log it
+client.on('messageDelete', (message) => {
+  if (!message.guild || message.author?.bot) return;
+  const logChannel = serverLog.getLogChannel(message.guild);
+  if (logChannel) serverLog.logMessageDelete(message, logChannel);
+});
+
+// Message edited — log it
+client.on('messageUpdate', (oldMessage, newMessage) => {
+  if (!newMessage.guild || newMessage.author?.bot) return;
+  if (oldMessage.content === newMessage.content) return; // embeds loading etc
+  const logChannel = serverLog.getLogChannel(newMessage.guild);
+  if (logChannel) serverLog.logMessageEdit(oldMessage, newMessage, logChannel);
+});
+
+// Voice state changes — log joins/leaves/moves
+client.on('voiceStateUpdate', (oldState, newState) => {
+  const logChannel = serverLog.getLogChannel(newState.guild);
+  if (logChannel) serverLog.logVoiceState(oldState, newState, logChannel);
+});
+
+// Reaction added — reaction roles + tickets
+client.on('messageReactionAdd', async (reaction, user) => {
+  // Handle partial reactions
+  if (reaction.partial) {
+    try { await reaction.fetch(); } catch { return; }
+  }
+  // Reaction roles
+  reactionRoles.handleReactionAdd(reaction, user);
+  // Tickets — create ticket on reaction
+  const ticketConfig = ticketSystem.getGuildConfig(reaction.message.guild.id);
+  if (ticketConfig.enabled && reaction.message.id === ticketConfig.panelMessageId && reaction.emoji.name === '🎫') {
+    const result = await ticketSystem.createTicket(reaction.message.guild, user, reaction.message.id);
+    if (!result.ok || result.channel) {
+      // Remove the user's reaction so they can react again
+      try { await reaction.users.remove(user.id); } catch { /* ignore */ }
+    }
+  }
+});
+
+// Reaction removed — reaction roles
+client.on('messageReactionRemove', async (reaction, user) => {
+  if (reaction.partial) {
+    try { await reaction.fetch(); } catch { return; }
+  }
+  reactionRoles.handleReactionRemove(reaction, user);
+});
+
+// Auto-mod — check messages for spam and banned words
+client.on('messageCreate', async (message) => {
+  if (!message.guild || message.author.bot) return;
+  // Spam check
+  if (autoMod.isSpam(message.guild.id, message.author.id)) {
+    try {
+      await message.delete();
+      await message.author.send('You are sending messages too quickly. Please slow down.').catch(() => {});
+    } catch { /* ignore */ }
+    return;
+  }
+  // Banned word check
+  const bannedWord = autoMod.containsBannedWord(message.guild.id, message.content);
+  if (bannedWord) {
+    try {
+      await message.delete();
+      const warnCount = autoMod.warnUser(message.guild.id, message.author.id);
+      await message.channel.send({ embeds: [warning({ title: '⚠️ Word Filter', description: `Your message contained a filtered word. Warning ${warnCount}.` })] }).then((m) => setTimeout(() => m.delete().catch(() => {}), 5000));
+    } catch { /* ignore */ }
+  }
+});
+
+
 console.log('Connecting to Discord...');
 const loginTimeout = setTimeout(() => {
   console.error('Discord login timed out after 30 seconds. Check the token and Wispbyte network/Gateway access.');
@@ -406,3 +835,4 @@ client.login(token)
     console.error('Discord startup failed:', error.message);
     process.exit(1);
   });
+
