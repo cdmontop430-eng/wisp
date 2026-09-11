@@ -53,13 +53,15 @@ function embed({
 }) {
   const builder = new EmbedBuilder()
     .setColor(COLORS[type] ?? COLORS.info)
-    .setTitle(title)
     .setDescription(description)
     .setTimestamp(timestamp)
     .setFooter({
       text: footer ?? BOT_NAME,
       iconURL: BOT_ICON,
     });
+
+  // setTitle must NOT be called with undefined or discord.js throws.
+  if (title) builder.setTitle(title);
 
   if (url) builder.setURL(url);
   if (thumbnail) builder.setThumbnail(thumbnail);

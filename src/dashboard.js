@@ -74,21 +74,22 @@ function validatePayload(body) {
     return { ok: false, error: 'Title is required (max 256 characters).' };
   }
 
-  const description = sanitizeText(body.description || '', 4096);
+  // Description is allowed to be LARGE — it is split across embeds later,
+  // never truncated. (Raw cap just protects against absurd abuse.)
+  const description = String(body.description || '').trim().slice(0, 60000);
 
   const rawSections = Array.isArray(body.sections) ? body.sections : [];
   if (rawSections.length === 0) {
     return { ok: false, error: 'At least one section is required.' };
   }
-  if (rawSections.length > 25) {
-    return { ok: false, error: 'Discord embeds support a maximum of 25 fields/sections.' };
-  }
 
   const sections = [];
   for (const raw of rawSections) {
     const heading = sanitizeText(raw.heading, 256);
+    // Lines are kept FULL (no char cap) — long lines are split later in
+    // buildDiscordEmbed so no content is ever dropped.
     const lines = Array.isArray(raw.lines)
-      ? raw.lines.filter((l) => typeof l === 'string' && l.trim().length > 0).map((l) => sanitizeText(l, 1024))
+      ? raw.lines.filter((l) => typeof l === 'string' && l.trim().length > 0).map((l) => l.trim())
       : [];
     if (!heading && lines.length === 0) continue;
     sections.push({
@@ -125,25 +126,56 @@ function validatePayload(body) {
   return { ok: true, data: { channelId, title, description, sections, imageUpload } };
 }
 
+// Split a single long text into <=max pieces WITHOUT losing any content.
+function splitLongText(text, max = 900) {
+  const trimmed = String(text).trim();
+  if (trimmed.length <= max) return [trimmed];
+  const pieces = [];
+  let buffer = '';
+  for (const word of trimmed.split(/\s+/)) {
+    if (buffer && (buffer + ' ' + word).length > max) {
+      if (buffer) pieces.push(buffer);
+      buffer = word;
+    } else if (!buffer && word.length > max) {
+      // A single gigantic word: hard-split at the limit.
+      pieces.push(word.slice(0, max));
+      buffer = word.slice(max);
+    } else {
+      buffer = buffer ? `${buffer} ${word}` : word;
+    }
+  }
+  if (buffer) pieces.push(buffer);
+  return pieces;
+}
+
 // ---------------------------------------------------------------------------
 // Build Discord EmbedBuilders from validated dashboard data.
 //
 // Returns an ARRAY of embeds so very long announcements are NEVER truncated:
-//   • Every section heading becomes a big `## Heading` markdown header
+//   • Every section heading becomes a big `# Heading` markdown header
 //   • Every line gets an auto-assigned emoji (shared with !ann)
-//   • Content is split across embeds when it exceeds Discord's 4k limit
+//   • Very long lines / the description are split into 900-char pieces first
+//   • Pieces are chunked across embeds under Discord's 4k description limit
 //   • The first section's imageUrl becomes the first embed's image
 // ---------------------------------------------------------------------------
 function buildDiscordEmbed(data) {
   const coverImage = data.sections.find((s) => s.imageUrl)?.imageUrl || null;
 
-  // Flat list of visual blocks: headings + emoji lines + video links.
-  // `# heading` = Discord's LARGEST markdown heading (big fonts in the chat).
+  // Flat list of visual blocks: description paragraphs + headings + emoji
+  // lines + video links. Nothing is truncated at this stage.
   const blocks = [];
-  if (data.description) blocks.push(data.description);
+  if (data.description) {
+    data.description
+      .split(/\n{2,}/) // keep paragraph breaks where possible
+      .forEach((paragraph) => { splitLongText(paragraph).forEach((p) => blocks.push(p)); });
+  }
   for (const section of data.sections) {
     blocks.push(`# ${section.heading}`);
-    section.lines.forEach((line, i) => blocks.push(emojiLine(line, blocks.length + i)));
+    section.lines.forEach((line, i) => {
+      emojiLine(line, blocks.length + i)
+        .split(/\n/)
+        .forEach((piece) => splitLongText(piece).forEach((p) => blocks.push(p)));
+    });
     if (section.videoUrl) blocks.push(`▶ [Watch Video](${section.videoUrl})`);
   }
 
@@ -170,16 +202,12 @@ function buildDiscordEmbed(data) {
   return chunks.map((chunk, index) => {
     const announcementEmbed = embed({
       type: 'info',
-      title: index === 0 ? `📢 ${data.title}` : undefined,
+      title: index === 0 ? `📢 ${data.title}` : `📢 ${data.title} (continued)`,
       description: chunk.join('\n') || '—',
       image: index === 0 ? coverImage : null,
       footer: 'D4C • Official Announcement',
     });
 
-    // Discord requires a title on early embeds for clean continuation.
-    if (index > 0) {
-      announcementEmbed.setTitle(`📢 ${data.title} (continued)`);
-    }
     return announcementEmbed;
   });
 }
@@ -242,8 +270,9 @@ function createDashboard(discordClient) {
     }
 
     // Build and send the embed(s). Long content = multiple embeds, so the
-    // FULL announcement always appears in the channel. An uploaded cover
-    // image is attached (file format, not URL) to the first message.
+    // FULL announcement always appears in the channel. Embeds are batched
+    // into messages (max 10 embeds / 5,900 chars) to keep it neat. An
+    // uploaded cover image is attached (file format, not URL) to the first.
     const discordEmbeds = buildDiscordEmbed(data);
     const attachmentFiles = data.imageUpload
       ? [{ name: data.imageUpload.name, attachment: Buffer.from(data.imageUpload.base64, 'base64') }]
@@ -251,16 +280,48 @@ function createDashboard(discordClient) {
     try {
       let firstId = null;
       let sentCount = 0;
+      let embedCount = 0;
+
+      const approxChars = (builder) => {
+        try {
+          const json = typeof builder.toJSON === 'function' ? builder.toJSON() : builder.data;
+          return ((json?.title || '') + (json?.description || '')).length;
+        } catch {
+          return 4000;
+        }
+      };
+
+      // Batch embeds: fill a message until it hits 10 embeds or ~5,900 chars.
+      let batch = [];
+      let batchChars = 0;
       for (const discordEmbed of discordEmbeds) {
+        const chars = approxChars(discordEmbed);
+        if (batch.length > 0 && (batch.length >= 10 || batchChars + chars > 5900)) {
+          const sent = await channel.send({
+            embeds: batch,
+            ...(sentCount === 0 && attachmentFiles.length > 0 ? { files: attachmentFiles } : {}),
+          });
+          if (!firstId) firstId = sent.id;
+          sentCount++;
+          embedCount += batch.length;
+          batch = [];
+          batchChars = 0;
+        }
+        batch.push(discordEmbed);
+        batchChars += chars;
+      }
+      if (batch.length > 0) {
         const sent = await channel.send({
-          embeds: [discordEmbed],
+          embeds: batch,
           ...(sentCount === 0 && attachmentFiles.length > 0 ? { files: attachmentFiles } : {}),
         });
         if (!firstId) firstId = sent.id;
         sentCount++;
+        embedCount += batch.length;
       }
-      console.log(`[dashboard] ${sentCount} embed(s) sent to #${channel.name} (${channel.id}) by dashboard.`);
-      return response.json({ ok: true, messageId: firstId, embeds: sentCount });
+
+      console.log(`[dashboard] ${embedCount} embed(s) in ${sentCount} message(s) to #${channel.name} (${channel.id}) by dashboard.`);
+      return response.json({ ok: true, messageId: firstId, embeds: embedCount, messages: sentCount });
     } catch (err) {
       console.error(`[dashboard] Failed to send embed to ${data.channelId}: ${err.message}`);
       if (err.code === 50013) {
