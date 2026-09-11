@@ -22,6 +22,36 @@ const sendStatus = document.getElementById('send-status');
 const previewTitle = document.getElementById('preview-title');
 const previewDescription = document.getElementById('preview-description');
 const previewFields = document.getElementById('preview-fields');
+const previewEmbed = document.getElementById('preview-embed');
+
+// Uploaded cover image (file, not URL) — sent as an attachment
+let uploadedImage = null;
+const coverUpload = document.getElementById('cover-upload');
+const uploadName = document.getElementById('upload-name');
+coverUpload.addEventListener('change', () => {
+  const file = coverUpload.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const base64 = reader.result; // "data:image/png;base64,...."
+    uploadedImage = {
+      name: file.name.replace(/[^A-Za-z0-9._-]/g, '_') || 'image.jpg',
+      base64: base64.includes(',') ? base64.split(',')[1] : base64,
+      mime: file.type || 'image/png',
+    };
+    uploadName.textContent = `📎 ${file.name}`;
+    // Show a live preview right under the embed description
+    previewEmbed.querySelectorAll('.cover-preview').forEach((el) => el.remove());
+    const img = document.createElement('img');
+    img.className = 'cover-preview';
+    img.alt = 'Cover image preview';
+    img.src = base64;
+    previewDescription.insertAdjacentElement('afterend', img);
+    showToast('Cover image uploaded — will be attached to the announcement', 'success');
+  };
+  reader.onerror = () => showToast('Could not read that image file.', 'error');
+  reader.readAsDataURL(file);
+});
 
 // ============================================================================
 // AUTO-EMOJI ENGINE (mirrors src/autoEmoji.js so the preview matches Discord)
@@ -349,6 +379,81 @@ document.getElementById('add-section-btn').addEventListener('click', () => {
   showToast('Custom section added — click to edit', 'info');
 });
 
+// ============================================================================
+// AUTO-FORMAT PASTE BOX
+// Paste a whole announcement → detect the title, section headings and body
+// lines automatically, then rebuild it as neat emoji sections.
+// Detection rules:
+//   • First line                     = big title
+//   • **Bold** / # heading / emoji-start line
+//   • short line WITHOUT a full stop = section heading (big)
+//   • anything else                  = emoji bullet line
+// ============================================================================
+function autoFormatContent(text) {
+  const lines = String(text).split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  if (lines.length === 0) return null;
+
+  // First line is always the title (strip ** or # markdown if present).
+  const title = lines.shift().replace(/^\*+/, '').replace(/\*+$/, '').replace(/^#+\s*/, '').trim();
+  if (!title) return null;
+
+  const isHeading = (line) => {
+    if (/^\*{1,2}\S/.test(line)) return true;                // **Bold**
+    if (/^#{1,3}\s/.test(line)) return true;                 // Markdown #
+    if (/^[🔒🛠️⚠️📢📌📋🌟💡🚀🎉💎💰🏆🎁📅📜📊❓🤝👋]/u.test(line)) return true; // starts with emoji
+    if (/[\u2600-\u27BF\u{1F300}-\u{1FAFF}]$/u.test(line)) return false; // ends with emoji (closing line)
+    if (/[.!?;:,]$/.test(line)) return false;                // sentence punctuation
+    return line.length <= 45;                                // short + no punctuation = heading
+  };
+
+  const clean = (line) => line.replace(/^#+\s*/, '').replace(/^\*+|\*+$/g, '').trim();
+
+  const sections = [];
+  let current = null;
+  const intro = [];
+
+  for (const line of lines) {
+    if (isHeading(line)) {
+      current = { heading: clean(line), lines: [] };
+      sections.push(current);
+    } else if (current) {
+      current.lines.push(line);
+    } else {
+      intro.push(line);
+    }
+  }
+
+  return {
+    title,
+    description: intro.join('\n'),
+    sections: sections.filter((s) => s.lines.length > 0),
+  };
+}
+
+function emojifyHeading(heading, index) {
+  const h = String(heading).trim();
+  if (/^[^\p{L}\p{N}\s]/u.test(h)) return h; // already decorated
+  return `${pickEmoji(h, index)} ${h}`;
+}
+
+document.getElementById('auto-format-btn').addEventListener('click', () => {
+  const parsed = autoFormatContent(document.getElementById('auto-paste').value);
+  if (!parsed) {
+    showToast('Paste some content first (first line = title).', 'error');
+    return;
+  }
+  previewTitle.textContent = `📢 ${parsed.title}`;
+  previewDescription.textContent = parsed.description || '—';
+  previewFields.innerHTML = '';
+  parsed.sections.forEach((section, index) => {
+    addSection(
+      emojifyHeading(section.heading, index),
+      emojifyText(section.lines.join('\n'), index)
+    );
+  });
+  showToast(`Auto-formatted into ${parsed.sections.length} section(s) ✨`, 'success');
+});
+
 // Channel validation
 validateChannelBtn.addEventListener('click', async () => {
   const channelId = channelIdInput.value.trim();
@@ -411,6 +516,7 @@ sendBtn.addEventListener('click', async () => {
     title,
     description,
     sections,
+    ...(uploadedImage ? { imageUpload: uploadedImage } : {}),
   };
 
   sendBtn.disabled = true;

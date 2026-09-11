@@ -103,7 +103,26 @@ function validatePayload(body) {
     return { ok: false, error: 'All sections are empty. Add at least one heading or line.' };
   }
 
-  return { ok: true, data: { channelId, title, description, sections } };
+  // Optional uploaded image (file, not URL). Frontend sends base64 in JSON.
+  let imageUpload = null;
+  if (body.imageUpload && typeof body.imageUpload === 'object') {
+    const rawBase = typeof body.imageUpload.base64 === 'string' ? body.imageUpload.base64 : '';
+    const cleanBase = rawBase.replace(/^data:[^;]+;base64,/, '').trim();
+    if (!/^[A-Za-z0-9+/=]+$/.test(cleanBase) || cleanBase.length < 20) {
+      return { ok: false, error: 'Invalid uploaded image data.' };
+    }
+    const bytes = Buffer.from(cleanBase, 'base64');
+    if (bytes.length > 8 * 1024 * 1024) {
+      return { ok: false, error: 'Uploaded image is too large — max 8 MB.' };
+    }
+    imageUpload = {
+      name: sanitizeText(String(body.imageUpload.name || 'image.jpg'), 255),
+      base64: cleanBase,
+      mime: sanitizeText(String(body.imageUpload.mime || 'image/png'), 128),
+    };
+  }
+
+  return { ok: true, data: { channelId, title, description, sections, imageUpload } };
 }
 
 // ---------------------------------------------------------------------------
@@ -173,8 +192,8 @@ function buildDiscordEmbed(data) {
 function createDashboard(discordClient) {
   const app = express();
 
-  // Parse JSON bodies up to 1 MB (plenty for text embeds).
-  app.use(express.json({ limit: '1mb' }));
+  // Parse JSON bodies up to 16 MB (JSON refuses; embeds + base64 image uploads fit).
+  app.use(express.json({ limit: '16mb' }));
 
   // Serve the static frontend from /public at the site root.
   const publicDir = path.resolve('public');
@@ -223,13 +242,20 @@ function createDashboard(discordClient) {
     }
 
     // Build and send the embed(s). Long content = multiple embeds, so the
-    // FULL announcement always appears in the channel.
+    // FULL announcement always appears in the channel. An uploaded cover
+    // image is attached (file format, not URL) to the first message.
     const discordEmbeds = buildDiscordEmbed(data);
+    const attachmentFiles = data.imageUpload
+      ? [{ name: data.imageUpload.name, attachment: Buffer.from(data.imageUpload.base64, 'base64') }]
+      : [];
     try {
       let firstId = null;
       let sentCount = 0;
       for (const discordEmbed of discordEmbeds) {
-        const sent = await channel.send({ embeds: [discordEmbed] });
+        const sent = await channel.send({
+          embeds: [discordEmbed],
+          ...(sentCount === 0 && attachmentFiles.length > 0 ? { files: attachmentFiles } : {}),
+        });
         if (!firstId) firstId = sent.id;
         sentCount++;
       }

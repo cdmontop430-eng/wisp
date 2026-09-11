@@ -99,6 +99,15 @@
           </div>
         </section>
 
+        <!-- Paste full content + auto-format -->
+        <section class="card">
+          <h2>Paste Full Content (auto-format)</h2>
+          <textarea id="auto-paste" rows="7" placeholder="Paste your whole announcement here.&#10;&#10;First line = big title.&#10;Short lines without punctuation = big section headings.&#10;Everything else = emoji bullet lines.&#10;Comes out perfectly neat ✨"></textarea>
+          <div class="row">
+            <button id="auto-format-btn" class="btn btn-secondary btn-sm">✨ Auto-Format into Sections</button>
+          </div>
+        </section>
+
         <!-- Send button -->
         <div class="send-row">
           <button id="send-btn" class="btn btn-primary btn-lg">Send to Discord</button>
@@ -132,6 +141,11 @@
           <div class="preview-actions">
             <button id="add-section-btn" class="btn btn-success btn-sm">+ Add Section</button>
             <span class="muted">Click any text to edit • ✕ on a section to remove it</span>
+            <label class="upload-label">
+              📎 Upload cover image:
+              <input type="file" id="cover-upload" accept="image/*" />
+            </label>
+            <span id="upload-name" class="muted"></span>
           </div>
         </div>
       </aside>
