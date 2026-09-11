@@ -14,7 +14,7 @@
 
 ## Commands
 
-- `!ann <content>` or an attached image/file deletes the command and posts bold content/attachments in the same channel. Long text and more than 10 attachments are split into multiple messages. Only verified owners can trigger it; the bot needs Manage Messages to delete the original command.
+- `!ann <title on first line>` — deletes the command and posts a **large professional announcement embed** with a big colored title, an auto-emoji for every line (keywords → matching emoji), a D4C footer, and optional image (`image: <url>` line, a direct image URL in content, or an attached image file). Long content splits into multiple matching embeds. Only verified owners can trigger it; the bot needs Manage Messages to delete the original command.
 - `!addowner <Discord user ID>` verifies a server member and grants full bot access. Only a verified owner or server Administrator can use it.
 - `!removeowner <Discord user ID>` removes a stored owner. `!owners` lists verified owners.
 - `!sendall <message>` or attached image/file sends the content and attachments to every human member in the current server. It uses one edited progress message showing `Sent: current/total` and `Failed: count`, then leaves the final summary in that same message. Long text and more than 10 attachments are split automatically. Only verified owners can use it; closed DMs are counted as failures.
