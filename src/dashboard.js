@@ -18,6 +18,7 @@ const path = require('node:path');
 const express = require('express');
 
 const { embed } = require('./embedHelper');
+const { emojiLine } = require('./autoEmoji');
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -106,33 +107,60 @@ function validatePayload(body) {
 }
 
 // ---------------------------------------------------------------------------
-// Build a Discord EmbedBuilder from validated dashboard data.
+// Build Discord EmbedBuilders from validated dashboard data.
+//
+// Returns an ARRAY of embeds so very long announcements are NEVER truncated:
+//   • Every section heading becomes a big `## Heading` markdown header
+//   • Every line gets an auto-assigned emoji (shared with !ann)
+//   • Content is split across embeds when it exceeds Discord's 4k limit
+//   • The first section's imageUrl becomes the first embed's image
 // ---------------------------------------------------------------------------
 function buildDiscordEmbed(data) {
-  // The first section's imageUrl becomes the embed image (if provided).
   const coverImage = data.sections.find((s) => s.imageUrl)?.imageUrl || null;
 
-  const fields = data.sections.map((section) => {
-    const cardValue = section.lines.length > 0
-      ? section.lines.join('\n')
-      : '​'; // zero-width space so the field isn't empty
-    const parts = [];
-    if (section.videoUrl) parts.push(`▶ [Video](${section.videoUrl})`);
-    parts.push(cardValue);
-    return {
-      name: section.heading.slice(0, 256),
-      value: parts.join('\n').slice(0, 1024),
-      inline: false,
-    };
-  });
+  // Flat list of visual blocks: headings + emoji lines + video links.
+  const blocks = [];
+  if (data.description) blocks.push(data.description);
+  for (const section of data.sections) {
+    blocks.push(`## ${section.heading}`);
+    section.lines.forEach((line, i) => blocks.push(emojiLine(line, blocks.length + i)));
+    if (section.videoUrl) blocks.push(`▶ [Watch Video](${section.videoUrl})`);
+  }
 
-  return embed({
-    type: 'info',
-    title: data.title,
-    description: data.description || undefined,
-    image: coverImage,
-    fields,
-    footer: 'D4C Dashboard',
+  // Chunk blocks so each embed description stays under Discord's 4096 limit.
+  const DESCRIPTION_LIMIT = 4000;
+  const chunks = [];
+  let current = [];
+  let currentLen = 0;
+  for (const block of blocks) {
+    const blockLen = block.length + 1;
+    if (current.length > 0 && currentLen + blockLen > DESCRIPTION_LIMIT) {
+      chunks.push(current);
+      current = [];
+      currentLen = 0;
+    }
+    current.push(block);
+    currentLen += blockLen;
+  }
+  if (current.length > 0) chunks.push(current);
+
+  if (chunks.length === 0) chunks.push([]);
+
+  // One embed per chunk → full content always appears in the channel.
+  return chunks.map((chunk, index) => {
+    const announcementEmbed = embed({
+      type: 'info',
+      title: index === 0 ? `📢 ${data.title}` : undefined,
+      description: chunk.join('\n') || '—',
+      image: index === 0 ? coverImage : null,
+      footer: 'D4C • Official Announcement',
+    });
+
+    // Discord requires a title on early embeds for clean continuation.
+    if (index > 0) {
+      announcementEmbed.setTitle(`📢 ${data.title} (continued)`);
+    }
+    return announcementEmbed;
   });
 }
 
@@ -193,12 +221,19 @@ function createDashboard(discordClient) {
       });
     }
 
-    // Build and send the embed.
-    const discordEmbed = buildDiscordEmbed(data);
+    // Build and send the embed(s). Long content = multiple embeds, so the
+    // FULL announcement always appears in the channel.
+    const discordEmbeds = buildDiscordEmbed(data);
     try {
-      const sent = await channel.send({ embeds: [discordEmbed] });
-      console.log(`[dashboard] Embed sent to #${channel.name} (${channel.id}) by dashboard.`);
-      return response.json({ ok: true, messageId: sent.id });
+      let firstId = null;
+      let sentCount = 0;
+      for (const discordEmbed of discordEmbeds) {
+        const sent = await channel.send({ embeds: [discordEmbed] });
+        if (!firstId) firstId = sent.id;
+        sentCount++;
+      }
+      console.log(`[dashboard] ${sentCount} embed(s) sent to #${channel.name} (${channel.id}) by dashboard.`);
+      return response.json({ ok: true, messageId: firstId, embeds: sentCount });
     } catch (err) {
       console.error(`[dashboard] Failed to send embed to ${data.channelId}: ${err.message}`);
       if (err.code === 50013) {

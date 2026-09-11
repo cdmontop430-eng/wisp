@@ -379,3 +379,37 @@ textarea { resize: vertical; min-height: 60px; }
   gap: 0.75rem;
   margin-top: 0.75rem;
 }
+/* ============================================================================
+   Section image / video URL inputs + live image preview
+   ============================================================================ */
+.section-image,
+.section-video {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: #1e1f22;
+  border: 1px solid #3f4147;
+  border-radius: 6px;
+  color: #b5bac1;
+  font-size: 11px;
+}
+
+.section-image::placeholder,
+.section-video::placeholder {
+  color: #6d7178;
+}
+
+.section-image:focus,
+.section-video:focus {
+  border-color: #5865f2;
+  outline: none;
+}
+
+.embed-image {
+  display: block;
+  max-width: 100%;
+  max-height: 180px;
+  margin-top: 6px;
+  border-radius: 8px;
+}

@@ -23,6 +23,48 @@ const previewTitle = document.getElementById('preview-title');
 const previewDescription = document.getElementById('preview-description');
 const previewFields = document.getElementById('preview-fields');
 
+// ============================================================================
+// AUTO-EMOJI ENGINE (mirrors src/autoEmoji.js so the preview matches Discord)
+// ============================================================================
+const EMOJI_RULES = [
+  { keys: ['urgent', 'important', 'notice', 'warning', 'alert', 'asap', 'attention'], emoji: '🚨' },
+  { keys: ['event', 'session', 'meeting', 'meetup', 'live', 'stream', 'tournament'], emoji: '📅' },
+  { keys: ['update', 'changelog', 'patch', 'new', 'release', 'launch', 'feature'], emoji: '🚀' },
+  { keys: ['giveaway', 'prize', 'winners', 'winner', 'reward', 'raffle', 'win'], emoji: '🎁' },
+  { keys: ['welcome', 'hello', 'joined', 'new member', 'arrival'], emoji: '👋' },
+  { keys: ['rule', 'rules', 'guideline', 'policy', 'must'], emoji: '📜' },
+  { keys: ['maintenance', 'downtime', 'down', 'issue', 'bug', 'fix', 'repair'], emoji: '🔧' },
+  { keys: ['help', 'request', 'question', 'support', 'faq', 'need'], emoji: '🆘' },
+  { keys: ['congrats', 'congratulations', 'achievement', 'mvp', 'thanks', 'thank', 'gg'], emoji: '🏆' },
+  { keys: ['vote', 'poll', 'voting', 'choose'], emoji: '📊' },
+  { keys: ['music', 'song', 'audio', 'gaming', 'game', 'server', 'community'], emoji: '🎧' },
+  { keys: ['announcement', 'announce', 'news', 'headline', 'mega'], emoji: '📢' },
+];
+const FALLBACK_EMOJIS = ['⭐', '⚡', '💡', '🔥', '🌟', '🎯', '📌', '✨', '🎉', '🔔'];
+
+function pickEmoji(line, index) {
+  const lower = String(line).toLowerCase();
+  for (const rule of EMOJI_RULES) {
+    if (rule.keys.some((k) => lower.includes(k))) return rule.emoji;
+  }
+  return FALLBACK_EMOJIS[(index || 0) % FALLBACK_EMOJIS.length];
+}
+
+// Add an auto-emoji to each line unless it already starts with one.
+function emojifyText(text, startIndex) {
+  const lines = String(text).split('\n');
+  let index = startIndex || 0;
+  const out = lines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+    if (/^[^\p{L}\p{N}\s]/u.test(trimmed)) return line; // already decorated
+    const decorated = `${pickEmoji(trimmed, index)} ${trimmed}`;
+    index++;
+    return decorated;
+  });
+  return out.join('\n');
+}
+
 // Template definitions
 const templates = {
   announcement: {
@@ -248,7 +290,7 @@ function loadTemplate(name) {
   previewDescription.textContent = template.description;
 
   previewFields.innerHTML = '';
-  template.fields.forEach((field) => addSection(field.name, field.value));
+  template.fields.forEach((field, index) => addSection(field.name, emojifyText(field.value, index)));
 
   showToast(`Loaded "${name}" template — click any text to edit`, 'info');
 }
@@ -261,10 +303,33 @@ function addSection(name = '📌 New Section', value = 'Click to edit this line\
     <button class="section-remove" title="Remove section">✕</button>
     <div class="embed-field-name" contenteditable="true">${name}</div>
     <div class="embed-field-value" contenteditable="true">${value}</div>
+    <input class="section-image" type="url" placeholder="Image URL (optional) — first section becomes the embed image">
+    <input class="section-video" type="url" placeholder="Video / GIF URL (optional)">
   `;
   fieldEl.querySelector('.section-remove').addEventListener('click', () => {
     fieldEl.remove();
     showToast('Section removed', 'info');
+  });
+  // Auto-assign emojis to lines when the user finishes editing (blur).
+  const valueEl = fieldEl.querySelector('.embed-field-value');
+  valueEl.addEventListener('blur', () => {
+    valueEl.textContent = emojifyText(valueEl.textContent, Array.from(previewFields.children).indexOf(fieldEl));
+  });
+  // Live image preview for the first section's image URL.
+  const imageInput = fieldEl.querySelector('.section-image');
+  imageInput.addEventListener('input', () => {
+    const img = fieldEl.querySelector('.embed-image');
+    if (imageInput.value.trim()) {
+      if (!img) {
+        const newImg = document.createElement('img');
+        newImg.className = 'embed-image';
+        newImg.alt = 'Section image preview';
+        fieldEl.appendChild(newImg);
+      }
+      fieldEl.querySelector('.embed-image').src = imageInput.value.trim();
+    } else if (img) {
+      img.remove();
+    }
   });
   previewFields.appendChild(fieldEl);
   return fieldEl;
@@ -319,6 +384,8 @@ sendBtn.addEventListener('click', async () => {
       sections.push({
         heading: name,
         lines: value.split('\n').filter((l) => l.trim()),
+        imageUrl: fieldEl.querySelector('.section-image').value.trim(),
+        videoUrl: fieldEl.querySelector('.section-video').value.trim(),
       });
     }
   });
