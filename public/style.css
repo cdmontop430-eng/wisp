@@ -144,6 +144,8 @@ textarea { resize: vertical; min-height: 60px; }
   position: sticky;
   top: 1rem;
   align-self: start;
+  width: 100%;
+  max-width: 100%;
 }
 .preview-title {
   font-size: 0.8rem;
@@ -157,8 +159,14 @@ textarea { resize: vertical; min-height: 60px; }
   border-radius: var(--radius);
   padding: 1.25rem;
   min-height: 400px;
+  width: 100%;
+  max-width: 100%;
 }
-.discord-message { display: flex; gap: 1.25rem; }
+.discord-message {
+  display: flex;
+  gap: 1.25rem;
+  width: 100%;
+}
 .discord-avatar {
   width: 40px;
   height: 40px;
@@ -166,7 +174,12 @@ textarea { resize: vertical; min-height: 60px; }
   background: var(--brand);
   flex-shrink: 0;
 }
-.discord-content { flex: 1; min-width: 0; }
+.discord-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
 .discord-header { margin-bottom: 0.35rem; }
 .discord-username { font-weight: 600; color: #fff; margin-right: 0.35rem; }
 .discord-bot-badge {
