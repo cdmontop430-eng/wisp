@@ -119,10 +119,11 @@ function buildDiscordEmbed(data) {
   const coverImage = data.sections.find((s) => s.imageUrl)?.imageUrl || null;
 
   // Flat list of visual blocks: headings + emoji lines + video links.
+  // `# heading` = Discord's LARGEST markdown heading (big fonts in the chat).
   const blocks = [];
   if (data.description) blocks.push(data.description);
   for (const section of data.sections) {
-    blocks.push(`## ${section.heading}`);
+    blocks.push(`# ${section.heading}`);
     section.lines.forEach((line, i) => blocks.push(emojiLine(line, blocks.length + i)));
     if (section.videoUrl) blocks.push(`▶ [Watch Video](${section.videoUrl})`);
   }

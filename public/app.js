@@ -335,9 +335,17 @@ function addSection(name = '📌 New Section', value = 'Click to edit this line\
   return fieldEl;
 }
 
-// Add Section button
+// Convert a number to emoji digits: 1 -> 1️⃣, 12 -> 1️⃣2️⃣
+function numberedEmoji(n) {
+  const DIGITS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
+  return String(n).split('').map((d) => DIGITS[Number(d)]).join('');
+}
+
+// Add Section button — new sections keep the numbering going + get an emoji
 document.getElementById('add-section-btn').addEventListener('click', () => {
-  addSection('📌 New Section', 'Edit this line\nAdd another line');
+  const existing = previewFields.querySelectorAll('.embed-field').length;
+  const heading = `${numberedEmoji(existing + 1)} 🗒️ New Section`;
+  addSection(heading, 'Edit this line\nAdd another line');
   showToast('Custom section added — click to edit', 'info');
 });
 
