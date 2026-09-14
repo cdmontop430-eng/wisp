@@ -378,47 +378,83 @@ function createDashboard(discordClient) {
       });
     }
 
-    const embeds = buildDiscordEmbed(data);
-    const attachmentFiles = data.imageUpload
-      ? [{ name: data.imageUpload.name, attachment: Buffer.from(data.imageUpload.base64, 'base64') }]
-      : [];
+    const mode = String(request.body.mode || 'broad').trim().toLowerCase();
 
-    if (data.imageUpload && embeds[0]) {
-      embeds[0].setImage(`attachment://${data.imageUpload.name}`);
-    }
+    if (mode === 'broad') {
+      const plainMessages = buildPlainMessages(data);
+      const attachmentFiles = data.imageUpload
+        ? [{ name: data.imageUpload.name, attachment: Buffer.from(data.imageUpload.base64, 'base64') }]
+        : [];
 
-    try {
-      let firstId = null;
-      let sentCount = 0;
+      try {
+        let firstId = null;
+        let sentCount = 0;
 
-      for (let i = 0; i < embeds.length; i++) {
-        const payload = {
-          embeds: [embeds[i]],
-          allowedMentions: { parse: [] },
-        };
-        if (i === 0 && attachmentFiles.length > 0) {
-          payload.files = attachmentFiles;
+        for (let i = 0; i < plainMessages.length; i++) {
+          const sent = await channel.send({
+            content: plainMessages[i],
+            ...(i === 0 && attachmentFiles.length > 0 ? { files: attachmentFiles } : {}),
+            allowedMentions: { parse: [] },
+          });
+          if (!firstId) firstId = sent.id;
+          sentCount++;
         }
 
-        const sent = await channel.send(payload);
-        if (!firstId) firstId = sent.id;
-        sentCount++;
+        console.log(`[dashboard] ${plainMessages.length} broad full-width announcement message(s) to #${channel.name} (${channel.id}) by dashboard.`);
+        return response.json({ ok: true, messageId: firstId, messages: sentCount });
+      } catch (err) {
+        console.error(`[dashboard] Failed to send broad announcement to ${data.channelId}: ${err.message}`);
+        if (err.code === 50013) {
+          return response.status(403).json({
+            ok: false,
+            message: 'Missing Permissions — the bot cannot send messages in that channel. Check View Channel + Send Messages.',
+          });
+        }
+        return response.status(500).json({ ok: false, message: `Send failed: ${err.message}` });
+      }
+    } else {
+      const embeds = buildDiscordEmbed(data);
+      const attachmentFiles = data.imageUpload
+        ? [{ name: data.imageUpload.name, attachment: Buffer.from(data.imageUpload.base64, 'base64') }]
+        : [];
+
+      if (data.imageUpload && embeds[0]) {
+        embeds[0].setImage(`attachment://${data.imageUpload.name}`);
       }
 
-      console.log(`[dashboard] ${embeds.length} announcement embed(s) sent to #${channel.name} (${channel.id}) by dashboard.`);
-      return response.json({ ok: true, messageId: firstId, messages: sentCount });
-    } catch (err) {
-      console.error(`[dashboard] Failed to send embed to ${data.channelId}: ${err.message}`);
-      if (err.code === 50013) {
-        return response.status(403).json({
+      try {
+        let firstId = null;
+        let sentCount = 0;
+
+        for (let i = 0; i < embeds.length; i++) {
+          const payload = {
+            embeds: [embeds[i]],
+            allowedMentions: { parse: [] },
+          };
+          if (i === 0 && attachmentFiles.length > 0) {
+            payload.files = attachmentFiles;
+          }
+
+          const sent = await channel.send(payload);
+          if (!firstId) firstId = sent.id;
+          sentCount++;
+        }
+
+        console.log(`[dashboard] ${embeds.length} announcement embed(s) sent to #${channel.name} (${channel.id}) by dashboard.`);
+        return response.json({ ok: true, messageId: firstId, messages: sentCount });
+      } catch (err) {
+        console.error(`[dashboard] Failed to send embed to ${data.channelId}: ${err.message}`);
+        if (err.code === 50013) {
+          return response.status(403).json({
+            ok: false,
+            message: 'Missing Permissions — the bot cannot send messages in that channel. Check View Channel + Send Messages + Embed Links.',
+          });
+        }
+        return response.status(500).json({
           ok: false,
-          message: 'Missing Permissions — the bot cannot send messages in that channel. Check View Channel + Send Messages + Embed Links.',
+          message: `Send failed: ${err.message}`,
         });
       }
-      return response.status(500).json({
-        ok: false,
-        message: `Send failed: ${err.message}`,
-      });
     }
   });
 

@@ -4,6 +4,18 @@
 // ============================================================================
 
 let dashboardKey = '';
+let selectedMode = 'broad';
+
+// Mode selector listeners
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.mode-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedMode = btn.dataset.mode || 'broad';
+    });
+  });
+});
 
 // DOM references
 const loginOverlay = document.getElementById('login-overlay');
@@ -584,6 +596,7 @@ sendBtn.addEventListener('click', async () => {
     title,
     description,
     sections,
+    mode: selectedMode,
     ...(uploadedImage ? { imageUpload: uploadedImage } : {}),
   };
 
