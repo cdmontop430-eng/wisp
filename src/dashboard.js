@@ -162,17 +162,53 @@ function splitLongText(text, max = 900) {
 // Calculate visual character width in monospace font (emojis take 2 spaces)
 function getVisualWidth(str) {
   if (!str) return 0;
-  const stripped = String(str).replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '  ');
+  const stripped = String(str)
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F100}-\u{1F1FF}\u{2B00}-\u{2BFF}]/gu, '  ')
+    .replace(/\uFE0F/g, '');
   return stripped.length;
 }
 
 const BOX_WIDTH = 44; // 44 visual chars fits Discord chat windows perfectly without line wrapping!
 
+function wrapTextLine(line, maxWidth = 40) {
+  const trimmed = String(line || '').trim();
+  if (getVisualWidth(trimmed) <= maxWidth) return [trimmed];
+
+  const words = trimmed.split(' ');
+  const lines = [];
+  let current = '';
+
+  for (const word of words) {
+    const test = current ? `${current} ${word}` : word;
+    if (getVisualWidth(test) <= maxWidth) {
+      current = test;
+    } else {
+      if (current) lines.push(current);
+      if (getVisualWidth(word) > maxWidth) {
+        let remaining = word;
+        while (getVisualWidth(remaining) > maxWidth) {
+          let sliceIdx = maxWidth;
+          while (sliceIdx > 0 && getVisualWidth(remaining.slice(0, sliceIdx)) > maxWidth) {
+            sliceIdx--;
+          }
+          lines.push(remaining.slice(0, sliceIdx));
+          remaining = remaining.slice(sliceIdx);
+        }
+        current = remaining;
+      } else {
+        current = '   ' + word;
+      }
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
 function centerText(text, width = BOX_WIDTH) {
   const t = String(text || '').trim();
   const visWidth = getVisualWidth(t);
   const targetWidth = width - 4; // 2 border chars + 2 padding spaces
-  if (visWidth >= targetWidth) return t;
+  if (visWidth >= targetWidth) return t.slice(0, targetWidth);
 
   const totalPadding = targetWidth - visWidth;
   const leftPadding = Math.floor(totalPadding / 2);
@@ -203,13 +239,21 @@ function buildHeaderBox(title, description, width = BOX_WIDTH) {
 
   const lines = [];
   lines.push(top);
-  lines.push('║ ' + centerText(titleText, width) + ' ║');
+
+  const titleWrapped = wrapTextLine(titleText, width - 4);
+  titleWrapped.forEach((tChunk) => {
+    lines.push('║ ' + centerText(tChunk, width) + ' ║');
+  });
+
   if (description) {
     lines.push(mid);
     description.split(/\r?\n/).forEach((dLine) => {
       const trimmed = dLine.trim();
       if (trimmed) {
-        lines.push('║ ' + centerText(trimmed, width) + ' ║');
+        const descWrapped = wrapTextLine(trimmed, width - 4);
+        descWrapped.forEach((dChunk) => {
+          lines.push('║ ' + centerText(dChunk, width) + ' ║');
+        });
       }
     });
   }
@@ -227,17 +271,28 @@ function buildSectionBox(heading, lines, videoUrl = null, width = BOX_WIDTH) {
 
   const boxLines = [];
   boxLines.push(top);
-  boxLines.push('│ ' + centerText(headingClean, width) + ' │');
+
+  const headWrapped = wrapTextLine(headingClean, width - 4);
+  headWrapped.forEach((hChunk) => {
+    boxLines.push('│ ' + centerText(hChunk, width) + ' │');
+  });
   boxLines.push(sep);
 
   for (const line of lines) {
     const trimmed = String(line).trim();
     if (!trimmed) continue;
-    boxLines.push('│ ' + padItem(trimmed, width) + ' │');
+    const wrappedPieces = wrapTextLine(trimmed, width - 4);
+    for (const piece of wrappedPieces) {
+      boxLines.push('│ ' + padItem(piece, width) + ' │');
+    }
   }
 
   if (videoUrl) {
-    boxLines.push('│ ' + padItem(`▶ Watch Video: ${videoUrl}`, width) + ' │');
+    const vidLine = `▶ Watch Video: ${videoUrl}`;
+    const vidWrapped = wrapTextLine(vidLine, width - 4);
+    for (const piece of vidWrapped) {
+      boxLines.push('│ ' + padItem(piece, width) + ' │');
+    }
   }
 
   boxLines.push(bot);
