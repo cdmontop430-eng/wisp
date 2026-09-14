@@ -149,6 +149,77 @@ function splitLongText(text, max = 900) {
 }
 
 // ---------------------------------------------------------------------------
+// Build PLAIN-TEXT messages from validated dashboard data.
+//
+// WHY plain text? Discord hard-codes embed cards at ~440px wide — no bot can
+// widen them. PLAIN messages span the FULL chat width, and `# Heading`
+// markdown renders at Discord's largest text size. Big `━━━` divider lines
+// make the announcement look like one broad, structured box.
+//
+// Returns an ARRAY of { content, files? } messages (2000-char limit each),
+// so very long announcements are NEVER truncated.
+// ---------------------------------------------------------------------------
+const BANNER_LINE = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+
+function buildPlainMessages(data) {
+  // Flat list of visual blocks: description paragraphs + headings + emoji
+  // lines + video links. Nothing is truncated at this stage.
+  const blocks = [];
+
+  // Big header block for the first message.
+  blocks.push(`# 📢 ${data.title}`);
+  blocks.push(BANNER_LINE);
+
+  if (data.description) {
+    data.description
+      .split(/\n{2,}/) // keep paragraph breaks where possible
+      .forEach((paragraph) => { splitLongText(paragraph).forEach((p) => blocks.push(p)); });
+    blocks.push(BANNER_LINE);
+  }
+
+  for (const section of data.sections) {
+    blocks.push(BANNER_LINE);
+    blocks.push(`# ${section.heading}`);
+    section.lines.forEach((line, i) => {
+      emojiLine(line, blocks.length + i)
+        .split(/\n/)
+        .forEach((piece) => splitLongText(piece).forEach((p) => blocks.push(p)));
+    });
+    if (section.videoUrl) blocks.push(`▶ **[Watch Video](${section.videoUrl})**`);
+  }
+
+  blocks.push(BANNER_LINE);
+  blocks.push('**📌 D4C • Official Announcement**');
+
+  // Collapse consecutive duplicate divider lines into one.
+  const blocks2 = [];
+  for (const block of blocks) {
+    if (block === BANNER_LINE && blocks2[blocks2.length - 1] === BANNER_LINE) continue;
+    blocks2.push(block);
+  }
+
+  // Chunk blocks so each message stays under Discord's 2000-char limit.
+  const MESSAGE_LIMIT = 1900;
+  const messages = [];
+  let current = [];
+  let currentLen = 0;
+  for (const block of blocks2) {
+    const blockLen = block.length + 1;
+    if (current.length > 0 && currentLen + blockLen > MESSAGE_LIMIT) {
+      messages.push(current.join('\n'));
+      current = [];
+      currentLen = 0;
+    }
+    current.push(block);
+    currentLen += blockLen;
+  }
+  if (current.length > 0) messages.push(current.join('\n'));
+
+  return messages;
+}
+
+
+// ---------------------------------------------------------------------------
 // Build Discord EmbedBuilders from validated dashboard data.
 //
 // Returns an ARRAY of embeds so very long announcements are NEVER truncated:
@@ -269,59 +340,30 @@ function createDashboard(discordClient) {
       });
     }
 
-    // Build and send the embed(s). Long content = multiple embeds, so the
-    // FULL announcement always appears in the channel. Embeds are batched
-    // into messages (max 10 embeds / 5,900 chars) to keep it neat. An
-    // uploaded cover image is attached (file format, not URL) to the first.
-    const discordEmbeds = buildDiscordEmbed(data);
+    // Build and send PLAIN-TEXT messages. Discord hard-codes embed cards at
+    // ~440px wide, but plain messages span the FULL chat width — so the
+    // announcement looks broad and structured with `#` big headers + divider
+    // lines. An uploaded cover image is attached (file format) to the first
+    // message, where Discord renders attachments much larger than embeds.
+    const plainMessages = buildPlainMessages(data);
     const attachmentFiles = data.imageUpload
       ? [{ name: data.imageUpload.name, attachment: Buffer.from(data.imageUpload.base64, 'base64') }]
       : [];
     try {
       let firstId = null;
       let sentCount = 0;
-      let embedCount = 0;
 
-      const approxChars = (builder) => {
-        try {
-          const json = typeof builder.toJSON === 'function' ? builder.toJSON() : builder.data;
-          return ((json?.title || '') + (json?.description || '')).length;
-        } catch {
-          return 4000;
-        }
-      };
-
-      // Batch embeds: fill a message until it hits 10 embeds or ~5,900 chars.
-      let batch = [];
-      let batchChars = 0;
-      for (const discordEmbed of discordEmbeds) {
-        const chars = approxChars(discordEmbed);
-        if (batch.length > 0 && (batch.length >= 10 || batchChars + chars > 5900)) {
-          const sent = await channel.send({
-            embeds: batch,
-            ...(sentCount === 0 && attachmentFiles.length > 0 ? { files: attachmentFiles } : {}),
-          });
-          if (!firstId) firstId = sent.id;
-          sentCount++;
-          embedCount += batch.length;
-          batch = [];
-          batchChars = 0;
-        }
-        batch.push(discordEmbed);
-        batchChars += chars;
-      }
-      if (batch.length > 0) {
+      for (let i = 0; i < plainMessages.length; i++) {
         const sent = await channel.send({
-          embeds: batch,
-          ...(sentCount === 0 && attachmentFiles.length > 0 ? { files: attachmentFiles } : {}),
+          content: plainMessages[i],
+          ...(i === 0 && attachmentFiles.length > 0 ? { files: attachmentFiles } : {}),
         });
         if (!firstId) firstId = sent.id;
         sentCount++;
-        embedCount += batch.length;
       }
 
-      console.log(`[dashboard] ${embedCount} embed(s) in ${sentCount} message(s) to #${channel.name} (${channel.id}) by dashboard.`);
-      return response.json({ ok: true, messageId: firstId, embeds: embedCount, messages: sentCount });
+      console.log(`[dashboard] ${plainMessages.length} announcement message(s) to #${channel.name} (${channel.id}) by dashboard.`);
+      return response.json({ ok: true, messageId: firstId, messages: sentCount });
     } catch (err) {
       console.error(`[dashboard] Failed to send embed to ${data.channelId}: ${err.message}`);
       if (err.code === 50013) {
@@ -365,4 +407,4 @@ function createDashboard(discordClient) {
   return app;
 }
 
-module.exports = { createDashboard, buildDiscordEmbed, validatePayload };
+module.exports = { createDashboard, buildDiscordEmbed, buildPlainMessages, validatePayload };
