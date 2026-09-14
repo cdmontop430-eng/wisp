@@ -159,78 +159,116 @@ function splitLongText(text, max = 900) {
 // Returns an ARRAY of { content, files? } messages (2000-char limit each),
 // so very long announcements are NEVER truncated.
 // ---------------------------------------------------------------------------
-const BANNER_LINE = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+function centerText(text, width = 52) {
+  const t = String(text || '').trim();
+  if (t.length >= width - 4) return t;
+  const totalPadding = width - 4 - t.length;
+  const leftPadding = Math.floor(totalPadding / 2);
+  const rightPadding = totalPadding - leftPadding;
+  return ' '.repeat(leftPadding) + t + ' '.repeat(rightPadding);
+}
+
+function buildHeaderBox(title, description, width = 54) {
+  const top = '╔' + '═'.repeat(width - 2) + '╗';
+  const mid = '╠' + '═'.repeat(width - 2) + '╣';
+  const bot = '╚' + '═'.repeat(width - 2) + '╝';
+
+  const titleClean = String(title || 'Announcement').replace(/^📢\s*/, '').trim();
+  const lines = [];
+  lines.push(top);
+  lines.push('║ ' + centerText(`📢 ${titleClean.toUpperCase()}`, width) + ' ║');
+  if (description) {
+    lines.push(mid);
+    description.split(/\r?\n/).forEach((dLine) => {
+      const trimmed = dLine.trim();
+      if (trimmed) {
+        lines.push('║ ' + centerText(trimmed, width) + ' ║');
+      }
+    });
+  }
+  lines.push(bot);
+  return lines.join('\n');
+}
+
+function buildSectionBox(heading, lines, videoUrl = null, width = 54) {
+  const top = '┌' + '─'.repeat(width - 2) + '┐';
+  const sep = '├' + '─'.repeat(width - 2) + '┤';
+  const bot = '└' + '─'.repeat(width - 2) + '┘';
+
+  const headingClean = String(heading || 'Section').replace(/^#+\s*/, '').trim();
+
+  const boxLines = [];
+  boxLines.push(top);
+  boxLines.push('│ ' + centerText(headingClean, width) + ' │');
+  boxLines.push(sep);
+
+  for (const line of lines) {
+    const trimmed = String(line).trim();
+    if (!trimmed) continue;
+    const padded = '  ' + trimmed;
+    boxLines.push('│ ' + padded.padEnd(width - 4, ' ').slice(0, width - 4) + ' │');
+  }
+
+  if (videoUrl) {
+    const vidLine = '  ▶ Watch Video: ' + videoUrl;
+    boxLines.push('│ ' + vidLine.padEnd(width - 4, ' ').slice(0, width - 4) + ' │');
+  }
+
+  boxLines.push(bot);
+  return boxLines.join('\n');
+}
 
 function buildPlainMessages(data) {
-  // Flat list of visual blocks: description paragraphs + headings + emoji
-  // lines + video links. Nothing is truncated at this stage.
   const blocks = [];
 
-  // Big header block for the first message.
-  blocks.push(`# 📢 ${data.title}`);
-  blocks.push(BANNER_LINE);
+  // Header Box Card (Centered Title + Subtitle)
+  const headerBox = buildHeaderBox(data.title, data.description);
+  blocks.push('```');
+  blocks.push(headerBox);
+  blocks.push('```');
 
-  if (data.description) {
-    // Fence-aware: fenced blocks in the description also pass through
-    // verbatim so they render as neat monospace boxes.
-    let descFence = false;
-    data.description.split(/\r?\n/).forEach((rawLine) => {
-      const line = rawLine.trim();
-      if (line.startsWith('```')) {
-        descFence = !descFence;
-        blocks.push(line);
-        return;
+  if (Array.isArray(data.sections)) {
+    let globalIndex = 0;
+    for (const section of data.sections) {
+      if (!section.heading && (!section.lines || section.lines.length === 0)) continue;
+
+      const rawHeading = section.heading
+        ? (section.heading.match(/^[^\p{L}\p{N}\s]/u) ? section.heading : emojiLine(section.heading, globalIndex++))
+        : '📌 Section';
+
+      let inFence = false;
+      const formattedLines = [];
+
+      for (const line of section.lines || []) {
+        const trimmed = String(line).trim();
+        if (trimmed.startsWith('```')) {
+          inFence = !inFence;
+          formattedLines.push(trimmed);
+          continue;
+        }
+        if (inFence) {
+          formattedLines.push(String(line));
+          continue;
+        }
+        if (!trimmed) continue;
+        formattedLines.push(emojiLine(trimmed, globalIndex++));
       }
-      if (descFence) {
-        blocks.push(rawLine);
-        return;
-      }
-      if (line.length === 0) return;
-      splitLongText(line).forEach((p) => blocks.push(p));
-    });
-    blocks.push(BANNER_LINE);
+
+      const secBox = buildSectionBox(rawHeading, formattedLines, section.videoUrl);
+      blocks.push('```');
+      blocks.push(secBox);
+      blocks.push('```');
+    }
   }
 
-  for (const section of data.sections) {
-    blocks.push(BANNER_LINE);
-    blocks.push(`# ${section.heading}`);
-    // Code fences (``` blocks) pass through VERBATIM — they render as neat
-    // monospace boxes in Discord, and emoji bullets would break them.
-    let inFence = false;
-    section.lines.forEach((line, i) => {
-      const trimmed = String(line).trim();
-      if (trimmed.startsWith('```')) {
-        inFence = !inFence;
-        blocks.push(trimmed);
-        return;
-      }
-      if (inFence) {
-        blocks.push(String(line)); // raw — keep spacing inside the box
-        return;
-      }
-      emojiLine(line, blocks.length + i)
-        .split(/\n/)
-        .forEach((piece) => splitLongText(piece).forEach((p) => blocks.push(p)));
-    });
-    if (section.videoUrl) blocks.push(`▶ **[Watch Video](${section.videoUrl})**`);
-  }
-
-  blocks.push(BANNER_LINE);
   blocks.push('**📌 D4C • Official Announcement**');
 
-  // Collapse consecutive duplicate divider lines into one.
-  const blocks2 = [];
-  for (const block of blocks) {
-    if (block === BANNER_LINE && blocks2[blocks2.length - 1] === BANNER_LINE) continue;
-    blocks2.push(block);
-  }
-
-  // Chunk blocks so each message stays under Discord's 2000-char limit.
   const MESSAGE_LIMIT = 1900;
   const messages = [];
   let current = [];
   let currentLen = 0;
-  for (const block of blocks2) {
+
+  for (const block of blocks) {
     const blockLen = block.length + 1;
     if (current.length > 0 && currentLen + blockLen > MESSAGE_LIMIT) {
       messages.push(current.join('\n'));

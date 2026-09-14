@@ -77,6 +77,16 @@ async function runE2ETests() {
   assert.ok(embedJson.fields[0].name.includes('What is Happening'));
   console.log('✔ Test 5 Passed!');
 
+  // Test 6: Centered Box Card Message Builder
+  console.log('Test 6: Centered Box Card Message Builder...');
+  const { buildPlainMessages } = require('../src/dashboard');
+  const plainMsgs = buildPlainMessages(sampleData);
+  assert.ok(plainMsgs.length > 0);
+  assert.ok(plainMsgs[0].includes('╔'));
+  assert.ok(plainMsgs[0].includes('ANNOUNCEMENT'));
+  assert.ok(plainMsgs[0].includes('┌'));
+  console.log('✔ Test 6 Passed!');
+
   console.log('=== ALL END-TO-END TESTS PASSED SUCCESSFULLY! ===');
   process.exit(0);
 }
