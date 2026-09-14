@@ -189,9 +189,9 @@ function getVisualWidth(str) {
   return s.length;
 }
 
-const BOX_WIDTH = 44; // 44 visual chars fits Discord chat windows perfectly without line wrapping!
+const BOX_WIDTH = 38; // 38 visual chars fits ALL Discord chat windows without line wrapping!
 
-function wrapTextLine(line, maxWidth = 40) {
+function wrapTextLine(line, maxWidth = 34) {
   const trimmed = normalizeTextForBox(line).trim();
   if (getVisualWidth(trimmed) <= maxWidth) return [trimmed];
 
