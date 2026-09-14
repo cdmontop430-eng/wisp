@@ -173,12 +173,15 @@ function getVisualWidth(str) {
   if (!str) return 0;
   let s = normalizeTextForBox(str);
 
+  // Squared enclosed symbols (like 🆘, 🆕, 🆓) render 3 spaces wide in Discord monospace
+  s = s.replace(/[\u{1F100}-\u{1F19A}]/gu, '   ');
+
   // Keycap emojis (e.g. 1️⃣, 2️⃣, #️⃣, *️⃣)
   s = s.replace(/[0-9#*]\uFE0F?\u20E3/g, '  ');
 
   // Emojis and Extended Pictographics
   s = s.replace(/\p{Extended_Pictographic}\uFE0F?/gu, '  ');
-  s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F100}-\u{1F1FF}\u{2B00}-\u{2BFF}\u{2300}-\u{23FF}\u{2B50}\u{2B55}]/gu, '  ');
+  s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2B00}-\u{2BFF}\u{2300}-\u{23FF}\u{2B50}\u{2B55}]/gu, '  ');
 
   // Strip variation selectors & zero-width joiners
   s = s.replace(/[\uFE0F\uFE0E\u200D]/g, '');
@@ -226,7 +229,16 @@ function centerText(text, width = BOX_WIDTH) {
   const norm = normalizeTextForBox(text).trim();
   const visWidth = getVisualWidth(norm);
   const targetWidth = width - 4; // 2 border chars + 2 padding spaces
-  if (visWidth >= targetWidth) return norm.slice(0, targetWidth);
+  if (visWidth >= targetWidth) {
+    let endIdx = targetWidth;
+    while (endIdx > 0 && getVisualWidth(norm.slice(0, endIdx)) > targetWidth) {
+      endIdx--;
+    }
+    const sliced = norm.slice(0, endIdx);
+    const sliceVisWidth = getVisualWidth(sliced);
+    const fillPadding = targetWidth - sliceVisWidth;
+    return sliced + ' '.repeat(fillPadding);
+  }
 
   const totalPadding = targetWidth - visWidth;
   const leftPadding = Math.floor(totalPadding / 2);
@@ -240,7 +252,14 @@ function padItem(text, width = BOX_WIDTH) {
   const visWidth = getVisualWidth(norm);
   const targetWidth = width - 4; // 2 border chars + 2 padding spaces
   if (visWidth >= targetWidth) {
-    return norm.slice(0, targetWidth);
+    let endIdx = targetWidth;
+    while (endIdx > 0 && getVisualWidth(norm.slice(0, endIdx)) > targetWidth) {
+      endIdx--;
+    }
+    const sliced = norm.slice(0, endIdx);
+    const sliceVisWidth = getVisualWidth(sliced);
+    const fillPadding = targetWidth - sliceVisWidth;
+    return sliced + ' '.repeat(fillPadding);
   }
   const rightPadding = targetWidth - visWidth;
   return norm + ' '.repeat(rightPadding);

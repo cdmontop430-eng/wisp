@@ -76,7 +76,7 @@ const EMOJI_RULES = [
   { keys: ['welcome', 'hello', 'joined', 'new member', 'arrival'], emoji: '👋' },
   { keys: ['rule', 'rules', 'guideline', 'policy', 'must'], emoji: '📜' },
   { keys: ['maintenance', 'downtime', 'down', 'issue', 'bug', 'fix', 'repair'], emoji: '🔧' },
-  { keys: ['help', 'request', 'question', 'support', 'faq', 'need'], emoji: '🆘' },
+  { keys: ['help', 'request', 'question', 'support', 'faq', 'need'], emoji: '❓' },
   { keys: ['congrats', 'congratulations', 'achievement', 'mvp', 'thanks', 'thank', 'gg'], emoji: '🏆' },
   { keys: ['vote', 'poll', 'voting', 'choose'], emoji: '📊' },
   { keys: ['music', 'song', 'audio', 'gaming', 'game', 'server', 'community'], emoji: '🎧' },
