@@ -159,24 +159,51 @@ function splitLongText(text, max = 900) {
 // Returns an ARRAY of { content, files? } messages (2000-char limit each),
 // so very long announcements are NEVER truncated.
 // ---------------------------------------------------------------------------
-function centerText(text, width = 52) {
+// Calculate visual character width in monospace font (emojis take 2 spaces)
+function getVisualWidth(str) {
+  if (!str) return 0;
+  const stripped = String(str).replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '  ');
+  return stripped.length;
+}
+
+const BOX_WIDTH = 44; // 44 visual chars fits Discord chat windows perfectly without line wrapping!
+
+function centerText(text, width = BOX_WIDTH) {
   const t = String(text || '').trim();
-  if (t.length >= width - 4) return t;
-  const totalPadding = width - 4 - t.length;
+  const visWidth = getVisualWidth(t);
+  const targetWidth = width - 4; // 2 border chars + 2 padding spaces
+  if (visWidth >= targetWidth) return t;
+
+  const totalPadding = targetWidth - visWidth;
   const leftPadding = Math.floor(totalPadding / 2);
   const rightPadding = totalPadding - leftPadding;
+
   return ' '.repeat(leftPadding) + t + ' '.repeat(rightPadding);
 }
 
-function buildHeaderBox(title, description, width = 54) {
-  const top = '╔' + '═'.repeat(width - 2) + '╗';
-  const mid = '╠' + '═'.repeat(width - 2) + '╣';
-  const bot = '╚' + '═'.repeat(width - 2) + '╝';
+function padItem(text, width = BOX_WIDTH) {
+  const t = String(text || '').trim();
+  const visWidth = getVisualWidth(t);
+  const targetWidth = width - 4; // 2 border chars + 2 padding spaces
+  if (visWidth >= targetWidth) {
+    return t.slice(0, targetWidth);
+  }
+  const rightPadding = targetWidth - visWidth;
+  return t + ' '.repeat(rightPadding);
+}
+
+function buildHeaderBox(title, description, width = BOX_WIDTH) {
+  const innerWidth = width - 2;
+  const top = '╔' + '═'.repeat(innerWidth) + '╗';
+  const mid = '╠' + '═'.repeat(innerWidth) + '╣';
+  const bot = '╚' + '═'.repeat(innerWidth) + '╝';
 
   const titleClean = String(title || 'Announcement').replace(/^📢\s*/, '').trim();
+  const titleText = titleClean ? `📢 ${titleClean.toUpperCase()}` : '📢 ANNOUNCEMENT';
+
   const lines = [];
   lines.push(top);
-  lines.push('║ ' + centerText(`📢 ${titleClean.toUpperCase()}`, width) + ' ║');
+  lines.push('║ ' + centerText(titleText, width) + ' ║');
   if (description) {
     lines.push(mid);
     description.split(/\r?\n/).forEach((dLine) => {
@@ -190,10 +217,11 @@ function buildHeaderBox(title, description, width = 54) {
   return lines.join('\n');
 }
 
-function buildSectionBox(heading, lines, videoUrl = null, width = 54) {
-  const top = '┌' + '─'.repeat(width - 2) + '┐';
-  const sep = '├' + '─'.repeat(width - 2) + '┤';
-  const bot = '└' + '─'.repeat(width - 2) + '┘';
+function buildSectionBox(heading, lines, videoUrl = null, width = BOX_WIDTH) {
+  const innerWidth = width - 2;
+  const top = '┌' + '─'.repeat(innerWidth) + '┐';
+  const sep = '├' + '─'.repeat(innerWidth) + '┤';
+  const bot = '└' + '─'.repeat(innerWidth) + '┘';
 
   const headingClean = String(heading || 'Section').replace(/^#+\s*/, '').trim();
 
@@ -205,13 +233,11 @@ function buildSectionBox(heading, lines, videoUrl = null, width = 54) {
   for (const line of lines) {
     const trimmed = String(line).trim();
     if (!trimmed) continue;
-    const padded = '  ' + trimmed;
-    boxLines.push('│ ' + padded.padEnd(width - 4, ' ').slice(0, width - 4) + ' │');
+    boxLines.push('│ ' + padItem(trimmed, width) + ' │');
   }
 
   if (videoUrl) {
-    const vidLine = '  ▶ Watch Video: ' + videoUrl;
-    boxLines.push('│ ' + vidLine.padEnd(width - 4, ' ').slice(0, width - 4) + ' │');
+    boxLines.push('│ ' + padItem(`▶ Watch Video: ${videoUrl}`, width) + ' │');
   }
 
   boxLines.push(bot);
