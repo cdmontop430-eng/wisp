@@ -159,19 +159,37 @@ function splitLongText(text, max = 900) {
 // Returns an ARRAY of { content, files? } messages (2000-char limit each),
 // so very long announcements are NEVER truncated.
 // ---------------------------------------------------------------------------
+function normalizeTextForBox(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015]/g, '-')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u2026/g, '...');
+}
+
 // Calculate visual character width in monospace font (emojis take 2 spaces)
 function getVisualWidth(str) {
   if (!str) return 0;
-  const stripped = String(str)
-    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F100}-\u{1F1FF}\u{2B00}-\u{2BFF}]/gu, '  ')
-    .replace(/\uFE0F/g, '');
-  return stripped.length;
+  let s = normalizeTextForBox(str);
+
+  // Keycap emojis (e.g. 1️⃣, 2️⃣, #️⃣, *️⃣)
+  s = s.replace(/[0-9#*]\uFE0F?\u20E3/g, '  ');
+
+  // Emojis and Extended Pictographics
+  s = s.replace(/\p{Extended_Pictographic}\uFE0F?/gu, '  ');
+  s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F100}-\u{1F1FF}\u{2B00}-\u{2BFF}\u{2300}-\u{23FF}\u{2B50}\u{2B55}]/gu, '  ');
+
+  // Strip variation selectors & zero-width joiners
+  s = s.replace(/[\uFE0F\uFE0E\u200D]/g, '');
+
+  return s.length;
 }
 
 const BOX_WIDTH = 44; // 44 visual chars fits Discord chat windows perfectly without line wrapping!
 
 function wrapTextLine(line, maxWidth = 40) {
-  const trimmed = String(line || '').trim();
+  const trimmed = normalizeTextForBox(line).trim();
   if (getVisualWidth(trimmed) <= maxWidth) return [trimmed];
 
   const words = trimmed.split(' ');
@@ -205,27 +223,27 @@ function wrapTextLine(line, maxWidth = 40) {
 }
 
 function centerText(text, width = BOX_WIDTH) {
-  const t = String(text || '').trim();
-  const visWidth = getVisualWidth(t);
+  const norm = normalizeTextForBox(text).trim();
+  const visWidth = getVisualWidth(norm);
   const targetWidth = width - 4; // 2 border chars + 2 padding spaces
-  if (visWidth >= targetWidth) return t.slice(0, targetWidth);
+  if (visWidth >= targetWidth) return norm.slice(0, targetWidth);
 
   const totalPadding = targetWidth - visWidth;
   const leftPadding = Math.floor(totalPadding / 2);
   const rightPadding = totalPadding - leftPadding;
 
-  return ' '.repeat(leftPadding) + t + ' '.repeat(rightPadding);
+  return ' '.repeat(leftPadding) + norm + ' '.repeat(rightPadding);
 }
 
 function padItem(text, width = BOX_WIDTH) {
-  const t = String(text || '').trim();
-  const visWidth = getVisualWidth(t);
+  const norm = normalizeTextForBox(text).trim();
+  const visWidth = getVisualWidth(norm);
   const targetWidth = width - 4; // 2 border chars + 2 padding spaces
   if (visWidth >= targetWidth) {
-    return t.slice(0, targetWidth);
+    return norm.slice(0, targetWidth);
   }
   const rightPadding = targetWidth - visWidth;
-  return t + ' '.repeat(rightPadding);
+  return norm + ' '.repeat(rightPadding);
 }
 
 function buildHeaderBox(title, description, width = BOX_WIDTH) {
@@ -234,7 +252,7 @@ function buildHeaderBox(title, description, width = BOX_WIDTH) {
   const mid = '╠' + '═'.repeat(innerWidth) + '╣';
   const bot = '╚' + '═'.repeat(innerWidth) + '╝';
 
-  const titleClean = String(title || 'Announcement').replace(/^📢\s*/, '').trim();
+  const titleClean = normalizeTextForBox(title || 'Announcement').replace(/^📢\s*/, '').trim();
   const titleText = titleClean ? `📢 ${titleClean.toUpperCase()}` : '📢 ANNOUNCEMENT';
 
   const lines = [];
@@ -267,7 +285,7 @@ function buildSectionBox(heading, lines, videoUrl = null, width = BOX_WIDTH) {
   const sep = '├' + '─'.repeat(innerWidth) + '┤';
   const bot = '└' + '─'.repeat(innerWidth) + '┘';
 
-  const headingClean = String(heading || 'Section').replace(/^#+\s*/, '').trim();
+  const headingClean = normalizeTextForBox(heading || 'Section').replace(/^#+\s*/, '').trim();
 
   const boxLines = [];
   boxLines.push(top);
