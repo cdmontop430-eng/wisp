@@ -260,10 +260,14 @@ function buildDiscordEmbed(data) {
   const coverImage = data.sections?.find((s) => s.imageUrl)?.imageUrl || null;
   const titleText = data.title ? (data.title.match(/^[^\p{L}\p{N}\s]/u) ? data.title : `📢 ${data.title}`) : '📢 Announcement';
 
+  const descText = data.description
+    ? `>>> ${data.description}`
+    : '';
+
   const mainEmbed = embed({
     type: 'info',
     title: titleText,
-    description: data.description || '',
+    description: descText,
     image: coverImage,
     footer: 'D4C • Official Announcement',
   });
@@ -273,9 +277,11 @@ function buildDiscordEmbed(data) {
     for (const section of data.sections) {
       if (!section.heading && (!section.lines || section.lines.length === 0)) continue;
 
-      const heading = section.heading
+      const rawHeading = section.heading
         ? (section.heading.match(/^[^\p{L}\p{N}\s]/u) ? section.heading : emojiLine(section.heading, globalIndex++))
         : '📌 Section';
+
+      const heading = `─── ${rawHeading} ───`;
 
       let inFence = false;
       const formattedLines = [];
@@ -292,11 +298,12 @@ function buildDiscordEmbed(data) {
           continue;
         }
         if (!trimmed) continue;
-        formattedLines.push(emojiLine(trimmed, globalIndex++));
+        const decorated = emojiLine(trimmed, globalIndex++);
+        formattedLines.push(`> ${decorated}`);
       }
 
       if (section.videoUrl) {
-        formattedLines.push(`▶ **[Watch Video](${section.videoUrl})**`);
+        formattedLines.push(`> ▶ **[Watch Video](${section.videoUrl})**`);
       }
 
       const fieldValue = formattedLines.join('\n') || '—';

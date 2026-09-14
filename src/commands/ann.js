@@ -222,10 +222,12 @@ async function handleAnnouncement(message, content) {
           continue;
         }
         if (!t) continue;
-        formattedLines.push(emojiLine(t, emojiOffset++));
+        const decorated = emojiLine(t, emojiOffset++);
+        formattedLines.push(`> ${decorated}`);
       }
+      const rawHeading = sec.heading.match(/^[^\p{L}\p{N}\s]/u) ? sec.heading : emojiLine(sec.heading, emojiOffset++);
       embed.addFields({
-        name: sec.heading.match(/^[^\p{L}\p{N}\s]/u) ? sec.heading : emojiLine(sec.heading, emojiOffset++),
+        name: `─── ${rawHeading} ───`,
         value: formattedLines.join('\n') || '—',
         inline: false,
       });

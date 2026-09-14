@@ -72,7 +72,7 @@ async function runE2ETests() {
   assert.equal(embeds.length, 1);
   const embedJson = embeds[0].toJSON();
   assert.equal(embedJson.title, '📢 Announcement');
-  assert.equal(embedJson.description, 'Important news for all members!');
+  assert.ok(embedJson.description.includes('Important news for all members!'));
   assert.equal(embedJson.fields.length, 2);
   assert.ok(embedJson.fields[0].name.includes('What is Happening'));
   console.log('✔ Test 5 Passed!');
