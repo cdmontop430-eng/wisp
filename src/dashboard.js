@@ -171,16 +171,43 @@ function buildPlainMessages(data) {
   blocks.push(BANNER_LINE);
 
   if (data.description) {
-    data.description
-      .split(/\n{2,}/) // keep paragraph breaks where possible
-      .forEach((paragraph) => { splitLongText(paragraph).forEach((p) => blocks.push(p)); });
+    // Fence-aware: fenced blocks in the description also pass through
+    // verbatim so they render as neat monospace boxes.
+    let descFence = false;
+    data.description.split(/\r?\n/).forEach((rawLine) => {
+      const line = rawLine.trim();
+      if (line.startsWith('```')) {
+        descFence = !descFence;
+        blocks.push(line);
+        return;
+      }
+      if (descFence) {
+        blocks.push(rawLine);
+        return;
+      }
+      if (line.length === 0) return;
+      splitLongText(line).forEach((p) => blocks.push(p));
+    });
     blocks.push(BANNER_LINE);
   }
 
   for (const section of data.sections) {
     blocks.push(BANNER_LINE);
     blocks.push(`# ${section.heading}`);
+    // Code fences (``` blocks) pass through VERBATIM — they render as neat
+    // monospace boxes in Discord, and emoji bullets would break them.
+    let inFence = false;
     section.lines.forEach((line, i) => {
+      const trimmed = String(line).trim();
+      if (trimmed.startsWith('```')) {
+        inFence = !inFence;
+        blocks.push(trimmed);
+        return;
+      }
+      if (inFence) {
+        blocks.push(String(line)); // raw — keep spacing inside the box
+        return;
+      }
       emojiLine(line, blocks.length + i)
         .split(/\n/)
         .forEach((piece) => splitLongText(piece).forEach((p) => blocks.push(p)));

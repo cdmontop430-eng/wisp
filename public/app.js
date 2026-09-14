@@ -340,10 +340,17 @@ function addSection(name = '📌 New Section', value = 'Click to edit this line\
     fieldEl.remove();
     showToast('Section removed', 'info');
   });
-  // Auto-assign emojis to lines when the user finishes editing (blur).
+  // Auto-assign emojis to lines when the user finishes editing (blur), then
+  // render any ``` pasted panels as neat monospace boxes on the page.
   const valueEl = fieldEl.querySelector('.embed-field-value');
   valueEl.addEventListener('blur', () => {
-    valueEl.textContent = emojifyText(valueEl.textContent, Array.from(previewFields.children).indexOf(fieldEl));
+    const raw = emojifyText(valueEl.textContent, Array.from(previewFields.children).indexOf(fieldEl));
+    valueEl.dataset.raw = raw; // keep the true text for sending to Discord
+    renderPanelBoxes(valueEl, raw);
+  });
+  // On focus, restore the raw editable text (with ``` markers visible).
+  valueEl.addEventListener('focus', () => {
+    if (valueEl.dataset.raw !== undefined) valueEl.textContent = valueEl.dataset.raw;
   });
   // Live image preview for the first section's image URL.
   const imageInput = fieldEl.querySelector('.section-image');
@@ -371,6 +378,45 @@ function numberedEmoji(n) {
   return String(n).split('').map((d) => DIGITS[Number(d)]).join('');
 }
 
+// Escape HTML so user-pasted content can be injected safely.
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Render section text: lines wrapped in ``` become neat monospace panel boxes
+// on the page (mirroring how Discord renders code blocks). Normal lines stay
+// as plain editable-looking text.
+function renderPanelBoxes(el, raw) {
+  const lines = String(raw).split('\n');
+  let html = '';
+  let buf = [];
+  let inFence = false;
+
+  const flush = () => {
+    if (buf.length > 0) {
+      html += `<pre class="panel-box">${escapeHtml(buf.join('\n'))}</pre>`;
+      buf = [];
+    }
+  };
+
+  for (const line of lines) {
+    const t = line.trim();
+    if (t.startsWith('```')) {
+      if (!inFence) flush();
+      inFence = !inFence;
+      continue; // hide the ``` markers themselves in the preview
+    }
+    if (inFence) {
+      buf.push(line);
+    } else {
+      flush();
+      html += escapeHtml(line) + '\n';
+    }
+  }
+  flush();
+  el.innerHTML = html;
+}
+
 // Add Section button — new sections keep the numbering going + get an emoji
 document.getElementById('add-section-btn').addEventListener('click', () => {
   const existing = previewFields.querySelectorAll('.embed-field').length;
@@ -390,7 +436,8 @@ document.getElementById('add-section-btn').addEventListener('click', () => {
 //   • anything else                  = emoji bullet line
 // ============================================================================
 function autoFormatContent(text) {
-  const lines = String(text).split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const rawLines = String(text).split(/\r?\n/);
+  const lines = rawLines.map((l) => l.trim()).filter((l) => l.length > 0);
   if (lines.length === 0) return null;
 
   // First line is always the title (strip ** or # markdown if present).
@@ -398,6 +445,7 @@ function autoFormatContent(text) {
   if (!title) return null;
 
   const isHeading = (line) => {
+    if (line.startsWith('```')) return false;                 // code fence — never a heading
     if (/^\*{1,2}\S/.test(line)) return true;                // **Bold**
     if (/^#{1,3}\s/.test(line)) return true;                 // Markdown #
     if (/^[🔒🛠️⚠️📢📌📋🌟💡🚀🎉💎💰🏆🎁📅📜📊❓🤝👋]/u.test(line)) return true; // starts with emoji
@@ -411,8 +459,25 @@ function autoFormatContent(text) {
   const sections = [];
   let current = null;
   const intro = [];
+  let inFence = false; // inside a ``` code block → keep lines VERBATIM (neat box)
 
-  for (const line of lines) {
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i].trim();
+    if (line.length === 0) continue;
+
+    // Code fences: toggling markers and inner lines pass through untouched so
+    // the monospace box survives into Discord exactly as pasted.
+    if (line.startsWith('```')) {
+      inFence = !inFence;
+      const target = current ? current.lines : intro;
+      if (inFence || target.length > 0) target.push(line);
+      continue;
+    }
+    if (inFence) {
+      (current ? current.lines : intro).push(rawLines[i]); // raw line keeps spacing
+      continue;
+    }
+
     if (isHeading(line)) {
       current = { heading: clean(line), lines: [] };
       sections.push(current);
@@ -492,7 +557,10 @@ sendBtn.addEventListener('click', async () => {
   const fieldElements = previewFields.querySelectorAll('.embed-field');
   fieldElements.forEach((fieldEl) => {
     const name = fieldEl.querySelector('.embed-field-name').textContent.trim();
-    const value = fieldEl.querySelector('.embed-field-value').textContent.trim();
+    const valueEl = fieldEl.querySelector('.embed-field-value');
+    // dataset.raw holds the true text (with ``` markers) from the last edit;
+    // fall back to visible text if it was never blurred.
+    const value = (valueEl.dataset.raw ?? valueEl.textContent).trim();
     if (name || value) {
       sections.push({
         heading: name,

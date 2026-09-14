@@ -29,14 +29,24 @@ function parseContent(content, files) {
 
   if (lines.length > 0) {
     const cleaned = [];
-    for (const line of lines) {
+    let inFence = false;
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (line.length === 0 && !inFence) continue;
       // explicit image marker:  image: <url> | img = <url> | picture: <url>
       const marker = line.match(/^(?:image|img|picture|pic)\s*[:=]\s*(https?:\/\/\S+)$/i);
-      if (marker) {
+      if (marker && !inFence) {
         imageUrl = marker[1]; // explicit marker overrides attachment
         continue;
       }
-      cleaned.push(line);
+      // Code fences (``` blocks) pass through verbatim — they render as neat
+      // monospace boxes in Discord; emoji decoration would break them.
+      if (line.startsWith('```')) {
+        inFence = !inFence;
+        cleaned.push(line);
+        continue;
+      }
+      cleaned.push(inFence ? rawLine : line);
     }
     title = cleaned.shift();
     bodyLines = cleaned;
@@ -75,7 +85,39 @@ function chunkBody(bodyLines) {
 }
 
 function buildDescription(chunk, startIndex) {
-  return chunk.map((line, i) => emojiLine(line, startIndex + i)).join('\n\n');
+  // Fence-aware: lines inside ``` blocks are NOT decorated with emojis and
+  // are joined tightly with single newlines so the monospace box renders
+  // exactly as pasted. Normal lines keep the spaced bullet style.
+  let emojiIndex = startIndex;
+  let inFence = false;
+  const parts = [];
+  let fenceBuffer = [];
+
+  const flushFence = () => {
+    if (fenceBuffer.length > 0) {
+      parts.push(fenceBuffer.join('\n'));
+      fenceBuffer = [];
+    }
+  };
+
+  for (const line of chunk) {
+    const trimmed = String(line).trim();
+    if (trimmed.startsWith('```')) {
+      if (!inFence) flushFence(); // close any stray block before opening a new one
+      inFence = !inFence;
+      fenceBuffer.push(trimmed);
+      if (!inFence) flushFence(); // fence closed → emit the whole box as one block
+      continue;
+    }
+    if (inFence) {
+      fenceBuffer.push(String(line)); // raw — keep spacing inside the box
+      continue;
+    }
+    if (trimmed === '') continue;
+    parts.push(emojiLine(line, emojiIndex++));
+  }
+  flushFence();
+  return parts.join('\n\n');
 }
 
 // ============================================================================
