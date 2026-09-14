@@ -257,57 +257,61 @@ function buildPlainMessages(data) {
 //   • The first section's imageUrl becomes the first embed's image
 // ---------------------------------------------------------------------------
 function buildDiscordEmbed(data) {
-  const coverImage = data.sections.find((s) => s.imageUrl)?.imageUrl || null;
+  const coverImage = data.sections?.find((s) => s.imageUrl)?.imageUrl || null;
+  const titleText = data.title ? (data.title.match(/^[^\p{L}\p{N}\s]/u) ? data.title : `📢 ${data.title}`) : '📢 Announcement';
 
-  // Flat list of visual blocks: description paragraphs + headings + emoji
-  // lines + video links. Nothing is truncated at this stage.
-  const blocks = [];
-  if (data.description) {
-    data.description
-      .split(/\n{2,}/) // keep paragraph breaks where possible
-      .forEach((paragraph) => { splitLongText(paragraph).forEach((p) => blocks.push(p)); });
-  }
-  for (const section of data.sections) {
-    blocks.push(`# ${section.heading}`);
-    section.lines.forEach((line, i) => {
-      emojiLine(line, blocks.length + i)
-        .split(/\n/)
-        .forEach((piece) => splitLongText(piece).forEach((p) => blocks.push(p)));
-    });
-    if (section.videoUrl) blocks.push(`▶ [Watch Video](${section.videoUrl})`);
-  }
-
-  // Chunk blocks so each embed description stays under Discord's 4096 limit.
-  const DESCRIPTION_LIMIT = 4000;
-  const chunks = [];
-  let current = [];
-  let currentLen = 0;
-  for (const block of blocks) {
-    const blockLen = block.length + 1;
-    if (current.length > 0 && currentLen + blockLen > DESCRIPTION_LIMIT) {
-      chunks.push(current);
-      current = [];
-      currentLen = 0;
-    }
-    current.push(block);
-    currentLen += blockLen;
-  }
-  if (current.length > 0) chunks.push(current);
-
-  if (chunks.length === 0) chunks.push([]);
-
-  // One embed per chunk → full content always appears in the channel.
-  return chunks.map((chunk, index) => {
-    const announcementEmbed = embed({
-      type: 'info',
-      title: index === 0 ? `📢 ${data.title}` : `📢 ${data.title} (continued)`,
-      description: chunk.join('\n') || '—',
-      image: index === 0 ? coverImage : null,
-      footer: 'D4C • Official Announcement',
-    });
-
-    return announcementEmbed;
+  const mainEmbed = embed({
+    type: 'info',
+    title: titleText,
+    description: data.description || '',
+    image: coverImage,
+    footer: 'D4C • Official Announcement',
   });
+
+  if (Array.isArray(data.sections)) {
+    let globalIndex = 0;
+    for (const section of data.sections) {
+      if (!section.heading && (!section.lines || section.lines.length === 0)) continue;
+
+      const heading = section.heading
+        ? (section.heading.match(/^[^\p{L}\p{N}\s]/u) ? section.heading : emojiLine(section.heading, globalIndex++))
+        : '📌 Section';
+
+      let inFence = false;
+      const formattedLines = [];
+
+      for (const line of section.lines || []) {
+        const trimmed = String(line).trim();
+        if (trimmed.startsWith('```')) {
+          inFence = !inFence;
+          formattedLines.push(trimmed);
+          continue;
+        }
+        if (inFence) {
+          formattedLines.push(String(line));
+          continue;
+        }
+        if (!trimmed) continue;
+        formattedLines.push(emojiLine(trimmed, globalIndex++));
+      }
+
+      if (section.videoUrl) {
+        formattedLines.push(`▶ **[Watch Video](${section.videoUrl})**`);
+      }
+
+      const fieldValue = formattedLines.join('\n') || '—';
+      const valuePieces = splitLongText(fieldValue, 1000);
+      valuePieces.forEach((piece, idx) => {
+        mainEmbed.addFields({
+          name: idx === 0 ? heading : `${heading} (continued)`,
+          value: piece,
+          inline: false,
+        });
+      });
+    }
+  }
+
+  return [mainEmbed];
 }
 
 // ---------------------------------------------------------------------------
@@ -367,29 +371,34 @@ function createDashboard(discordClient) {
       });
     }
 
-    // Build and send PLAIN-TEXT messages. Discord hard-codes embed cards at
-    // ~440px wide, but plain messages span the FULL chat width — so the
-    // announcement looks broad and structured with `#` big headers + divider
-    // lines. An uploaded cover image is attached (file format) to the first
-    // message, where Discord renders attachments much larger than embeds.
-    const plainMessages = buildPlainMessages(data);
+    const embeds = buildDiscordEmbed(data);
     const attachmentFiles = data.imageUpload
       ? [{ name: data.imageUpload.name, attachment: Buffer.from(data.imageUpload.base64, 'base64') }]
       : [];
+
+    if (data.imageUpload && embeds[0]) {
+      embeds[0].setImage(`attachment://${data.imageUpload.name}`);
+    }
+
     try {
       let firstId = null;
       let sentCount = 0;
 
-      for (let i = 0; i < plainMessages.length; i++) {
-        const sent = await channel.send({
-          content: plainMessages[i],
-          ...(i === 0 && attachmentFiles.length > 0 ? { files: attachmentFiles } : {}),
-        });
+      for (let i = 0; i < embeds.length; i++) {
+        const payload = {
+          embeds: [embeds[i]],
+          allowedMentions: { parse: [] },
+        };
+        if (i === 0 && attachmentFiles.length > 0) {
+          payload.files = attachmentFiles;
+        }
+
+        const sent = await channel.send(payload);
         if (!firstId) firstId = sent.id;
         sentCount++;
       }
 
-      console.log(`[dashboard] ${plainMessages.length} announcement message(s) to #${channel.name} (${channel.id}) by dashboard.`);
+      console.log(`[dashboard] ${embeds.length} announcement embed(s) sent to #${channel.name} (${channel.id}) by dashboard.`);
       return response.json({ ok: true, messageId: firstId, messages: sentCount });
     } catch (err) {
       console.error(`[dashboard] Failed to send embed to ${data.channelId}: ${err.message}`);

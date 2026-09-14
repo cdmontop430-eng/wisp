@@ -120,6 +120,57 @@ function buildDescription(chunk, startIndex) {
   return parts.join('\n\n');
 }
 
+function parseSections(bodyLines) {
+  let description = '';
+  const sections = [];
+  let currentSection = null;
+  let inFence = false;
+
+  const isHeading = (line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('```')) return false;
+    if (/^\*{1,2}\S/.test(trimmed)) return true;
+    if (/^#{1,3}\s/.test(trimmed)) return true;
+    if (/^[🔒🛠️⚠️📢📌📋🌟💡🚀🎉💎💰🏆🎁📅📜📊❓🤝👋]/u.test(trimmed)) return true;
+    if (/[.!?;:]$/.test(trimmed)) return false;
+    return trimmed.length <= 50;
+  };
+
+  const cleanHeader = (line) => line.replace(/^#+\s*/, '').replace(/^\*+|\*+$/g, '').trim();
+
+  for (const line of bodyLines) {
+    const trimmed = String(line).trim();
+    if (trimmed.startsWith('```')) {
+      inFence = !inFence;
+      if (currentSection) {
+        currentSection.lines.push(trimmed);
+      } else {
+        description = description ? `${description}\n${trimmed}` : trimmed;
+      }
+      continue;
+    }
+    if (inFence) {
+      if (currentSection) {
+        currentSection.lines.push(line);
+      } else {
+        description = description ? `${description}\n${line}` : line;
+      }
+      continue;
+    }
+
+    if (isHeading(trimmed)) {
+      currentSection = { heading: cleanHeader(trimmed), lines: [] };
+      sections.push(currentSection);
+    } else if (currentSection) {
+      currentSection.lines.push(line);
+    } else {
+      description = description ? `${description}\n${line}` : line;
+    }
+  }
+
+  return { description, sections };
+}
+
 // ============================================================================
 // MAIN HANDLER
 // ============================================================================
@@ -140,34 +191,60 @@ async function handleAnnouncement(message, content) {
   await message.delete().catch(() => {});
 
   const { title, bodyLines, imageUrl } = parseContent(content, files);
+  const { description, sections } = parseSections(bodyLines);
 
-  // 1) Build the big professional announcement embeds
-  const chunks = chunkBody(bodyLines);
-  const embedCount = Math.max(chunks.length, 1);
-  let emojiOffset = 0;
-  for (let i = 0; i < embedCount; i++) {
-    const embed = new EmbedBuilder()
-      .setColor(0x5865f2) // Discord blurple — matches the dashboard style
-      .setTitle(i === 0 ? `📢 ${title}` : `📢 ${title} (continued)`)
-      .setDescription(
-        chunks[i] && chunks[i].length > 0
-          ? buildDescription(chunks[i], emojiOffset)
-          : '—'
-      )
-      .setFooter({ text: 'D4C • Official Announcement' })
-      .setTimestamp();
+  const embedTitle = title.startsWith('📢') ? title : `📢 ${title}`;
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2) // Discord blurple — matches the dashboard style
+    .setTitle(embedTitle)
+    .setFooter({ text: 'D4C • Official Announcement' })
+    .setTimestamp();
 
-    if (i === 0 && imageUrl) {
-      embed.setImage({ url: imageUrl });
-    }
-
-    await message.channel.send({
-      embeds: [embed],
-      flags: MessageFlags.SuppressEmbeds,
-      allowedMentions: { parse: [] },
-    });
-    emojiOffset += chunks[i] ? chunks[i].length : 0;
+  if (description) {
+    embed.setDescription(description);
   }
+
+  let emojiOffset = 0;
+  if (sections.length > 0) {
+    for (const sec of sections) {
+      if (!sec.heading && sec.lines.length === 0) continue;
+      const formattedLines = [];
+      let inFence = false;
+      for (const line of sec.lines) {
+        const t = String(line).trim();
+        if (t.startsWith('```')) {
+          inFence = !inFence;
+          formattedLines.push(t);
+          continue;
+        }
+        if (inFence) {
+          formattedLines.push(String(line));
+          continue;
+        }
+        if (!t) continue;
+        formattedLines.push(emojiLine(t, emojiOffset++));
+      }
+      embed.addFields({
+        name: sec.heading.match(/^[^\p{L}\p{N}\s]/u) ? sec.heading : emojiLine(sec.heading, emojiOffset++),
+        value: formattedLines.join('\n') || '—',
+        inline: false,
+      });
+    }
+  } else if (bodyLines.length > 0 && !description) {
+    const chunks = chunkBody(bodyLines);
+    if (chunks[0]) {
+      embed.setDescription(buildDescription(chunks[0], 0));
+    }
+  }
+
+  if (imageUrl) {
+    embed.setImage(imageUrl);
+  }
+
+  await message.channel.send({
+    embeds: [embed],
+    allowedMentions: { parse: [] },
+  });
 
   // 2) Still forward non-image attachments exactly like before
   const remainingFiles = files.filter((f) => f.attachment !== imageUrl);

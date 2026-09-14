@@ -57,6 +57,26 @@ async function runE2ETests() {
 
   console.log('✔ Test 4 Passed!');
 
+  // Test 5: Announcement Embed Builder
+  console.log('Test 5: Announcement Embed Builder...');
+  const { buildDiscordEmbed } = require('../src/dashboard');
+  const sampleData = {
+    title: 'Announcement',
+    description: 'Important news for all members!',
+    sections: [
+      { heading: 'What is Happening', lines: ['Line 1', 'Line 2'] },
+      { heading: 'Timeline', lines: ['Line A', 'Line B'] },
+    ],
+  };
+  const embeds = buildDiscordEmbed(sampleData);
+  assert.equal(embeds.length, 1);
+  const embedJson = embeds[0].toJSON();
+  assert.equal(embedJson.title, '📢 Announcement');
+  assert.equal(embedJson.description, 'Important news for all members!');
+  assert.equal(embedJson.fields.length, 2);
+  assert.ok(embedJson.fields[0].name.includes('What is Happening'));
+  console.log('✔ Test 5 Passed!');
+
   console.log('=== ALL END-TO-END TESTS PASSED SUCCESSFULLY! ===');
   process.exit(0);
 }
