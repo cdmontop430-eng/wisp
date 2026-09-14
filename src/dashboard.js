@@ -168,22 +168,34 @@ function normalizeTextForBox(str) {
     .replace(/\u2026/g, '...');
 }
 
-// Calculate visual character width in monospace font (emojis take 2 spaces)
+// Calculate visual character width in monospace font.
+//
+// Discord's monospace (code block) font renders two distinct categories:
+//   • Pure emoji   (U+1F000–U+1FFFF, e.g. 🎯 🚨 🆘 🔥)  → 2 columns wide
+//   • Legacy/text symbols (U+2300–U+27BF, e.g. ⚠️ ✔️ ☑️)  → 1 column wide
+//     (These were text dingbats first; Discord's monospace font keeps them 1-wide
+//      even when the FE0F emoji-variation selector is appended.)
 function getVisualWidth(str) {
   if (!str) return 0;
   let s = normalizeTextForBox(str);
 
-  // Squared enclosed symbols (like 🆘, 🆕, 🆓) render 3 spaces wide in Discord monospace
-  s = s.replace(/[\u{1F100}-\u{1F19A}]/gu, '   ');
-
-  // Keycap emojis (e.g. 1️⃣, 2️⃣, #️⃣, *️⃣)
+  // 1. Keycap sequences:  1️⃣  2️⃣  #️⃣  *️⃣  → 2-wide
   s = s.replace(/[0-9#*]\uFE0F?\u20E3/g, '  ');
 
-  // Emojis and Extended Pictographics
-  s = s.replace(/\p{Extended_Pictographic}\uFE0F?/gu, '  ');
-  s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2B00}-\u{2BFF}\u{2300}-\u{23FF}\u{2B50}\u{2B55}]/gu, '  ');
+  // 2. Pure emoji in U+1F000–U+1FFFF (🎯 🚀 🆘 📢 🛡️ etc.) → 2-wide
+  //    Include optional FE0F or ZWJ so the whole cluster is consumed.
+  s = s.replace(/[\u{1F000}-\u{1FFFF}][\uFE0F\u200D]?/gu, '  ');
 
-  // Strip variation selectors & zero-width joiners
+  // 3. Legacy Unicode symbol / dingbat blocks (U+2300–U+27BF):
+  //    ⚠️  ✔️  ☑️  ♦️  ★  ✓  etc. render 1-wide in Discord code blocks.
+  //    Consume the optional FE0F so it doesn't get double-counted.
+  s = s.replace(/[\u{2300}-\u{27BF}]\uFE0F?/gu, ' ');
+
+  // 4. Supplemental Symbols & Arrows, Misc Symbols & Pictographics (U+2B00–U+2BFF)
+  //    Also 1-wide legacy range.
+  s = s.replace(/[\u{2B00}-\u{2BFF}]\uFE0F?/gu, ' ');
+
+  // 5. Strip any remaining variation selectors & zero-width joiners
   s = s.replace(/[\uFE0F\uFE0E\u200D]/g, '');
 
   return s.length;
@@ -217,7 +229,7 @@ function wrapTextLine(line, maxWidth = 34) {
         }
         current = remaining;
       } else {
-        current = '   ' + word;
+        current = word;
       }
     }
   }
