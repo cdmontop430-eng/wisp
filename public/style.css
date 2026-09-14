@@ -29,6 +29,7 @@ body {
   background: var(--bg-darkest);
   color: var(--text-normal);
   min-height: 100vh;
+  width: 100%;
 }
 
 .hidden { display: none !important; }
@@ -60,7 +61,11 @@ body {
 }
 
 /* ================= Layout ================= */
-.app { min-height: 100vh; }
+.app {
+  min-height: 100vh;
+  width: 100%;
+  max-width: none;
+}
 .app-header {
   display: flex;
   align-items: center;
@@ -74,11 +79,17 @@ body {
 
 .layout {
   display: grid;
-  grid-template-columns: 380px 1fr;
-  gap: 1.5rem;
-  padding: 1.5rem;
-  max-width: 1500px;
+  grid-template-columns: minmax(380px, 520px) minmax(0, 1fr);
+  gap: 1.25rem;
+  padding: 1.25rem;
+  max-width: none;
+  width: 100%;
   margin: 0 auto;
+}
+
+.builder {
+  min-width: 0;
+  width: 100%;
 }
 
 @media (max-width: 900px) {
@@ -161,6 +172,7 @@ textarea { resize: vertical; min-height: 60px; }
   min-height: 400px;
   width: 100%;
   max-width: 100%;
+  min-width: 0;
 }
 .discord-message {
   display: flex;
@@ -207,16 +219,17 @@ textarea { resize: vertical; min-height: 60px; }
 .discord-preview {
   width: 100%;
 }
-.embed-inner { padding: 1rem 1.5rem 1.5rem 1rem; }
+.embed-inner { padding: 1.5rem 2rem 2rem 1.25rem; }
 .embed-title {
-  font-weight: 600;
-  font-size: 1.15rem;
+  font-weight: 700;
+  font-size: 1.55rem;
   color: #fff;
-  margin-bottom: 0.75rem;
+  margin-bottom: 1rem;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding-bottom: 0.75rem;
   outline: none;
   border-radius: 2px;
-  padding: 2px 4px;
-  margin-left: -4px;
   transition: background 0.15s;
 }
 .embed-title:focus {
@@ -224,7 +237,7 @@ textarea { resize: vertical; min-height: 60px; }
   box-shadow: inset 0 0 0 1px var(--brand);
 }
 .embed-description {
-  font-size: 0.95rem;
+  font-size: 1.08rem;
   color: var(--text-normal);
   margin-bottom: 1.25rem;
   line-height: 1.6;
@@ -242,13 +255,14 @@ textarea { resize: vertical; min-height: 60px; }
 .embed-field { margin-bottom: 0.75rem; }
 .embed-field-name {
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: 1.2rem;
   color: #fff;
   margin-bottom: 0.35rem;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 0.35rem;
   outline: none;
   border-radius: 2px;
-  padding: 2px 4px;
-  margin-left: -4px;
   transition: background 0.15s;
 }
 .embed-field-name:focus {
@@ -256,7 +270,7 @@ textarea { resize: vertical; min-height: 60px; }
   box-shadow: inset 0 0 0 1px var(--brand);
 }
 .embed-field-value {
-  font-size: 0.9rem;
+  font-size: 1rem;
   color: var(--text-normal);
   line-height: 1.6;
   white-space: pre-wrap;
@@ -274,6 +288,7 @@ textarea { resize: vertical; min-height: 60px; }
   font-size: 0.7rem;
   color: var(--text-muted);
   margin-top: 1.25rem;
+  text-align: center;
 }
 
 /* ================= Toasts ================= */
